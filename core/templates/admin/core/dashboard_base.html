@@ -72,6 +72,13 @@
     font-size: 1.1rem;
     flex-shrink: 0;
   }
+  .sidebar-brand-logo {
+    width: 40px;
+    height: 40px;
+    object-fit: contain;
+    flex-shrink: 0;
+    display: block;
+  }
   .sidebar-brand-name { font-weight: 700; font-size: 1rem; color: var(--text); }
   .sidebar-brand-sub { font-size: 0.72rem; color: var(--muted); margin-top: 1px; }
 
@@ -518,7 +525,11 @@
   <aside class="sidebar" id="sidebar" aria-label="Main navigation">
     <button type="button" class="sidebar-close" id="sidebarClose" aria-label="Close menu">&times;</button>
     <div class="sidebar-brand">
-      <span class="sidebar-brand-badge">U</span>
+      {% if ACADEMY_LOGO_URL %}
+        <img src="{{ ACADEMY_LOGO_URL }}" alt="Update IT logo" class="sidebar-brand-logo">
+      {% else %}
+        <span class="sidebar-brand-badge">U</span>
+      {% endif %}
       <div>
         <div class="sidebar-brand-name">Update IT</div>
         <div class="sidebar-brand-sub">Staff Dashboard</div>

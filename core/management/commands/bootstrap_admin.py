@@ -6,8 +6,8 @@ from django.core.management.base import BaseCommand, CommandError
 
 class Command(BaseCommand):
     help = (
-        "Create the initial Django superuser if it does not exist. "
-        "Does not overwrite an existing account or its password."
+        "Create or repair the initial Django superuser when an explicit "
+        "bootstrap password is configured."
     )
 
     def handle(self, *args, **options):
@@ -15,7 +15,7 @@ class Command(BaseCommand):
         email = os.environ.get("DJANGO_BOOTSTRAP_ADMIN_EMAIL", "").strip()
         username = os.environ.get("DJANGO_BOOTSTRAP_ADMIN_USERNAME", "pronoy").strip()
 
-        # Keep ordinary deploys safe: without the explicit password, do nothing.
+        # Without an explicit password, leave all accounts untouched.
         if not password:
             self.stdout.write("Initial admin bootstrap skipped (password variable not set).")
             return
@@ -28,22 +28,28 @@ class Command(BaseCommand):
             )
 
         User = get_user_model()
-        existing = User._default_manager.filter(**{User.USERNAME_FIELD: username}).first()
-        if existing:
-            self.stdout.write(
-                self.style.WARNING(
-                    f"Account '{username}' already exists; its password and permissions were not changed."
-                )
-            )
-            return
+        user = User._default_manager.filter(
+            **{User.USERNAME_FIELD: username}
+        ).first()
 
-        user = User._default_manager.create_user(
-            **{User.USERNAME_FIELD: username},
-            email=email,
-            password=password,
-        )
+        if user is None:
+            user = User._default_manager.create_user(
+                **{User.USERNAME_FIELD: username},
+                email=email,
+                password=password,
+            )
+            action = "created"
+        else:
+            # This reset is intentional only when the bootstrap password is set.
+            user.set_password(password)
+            user.email = email
+            action = "updated"
+
         user.is_staff = True
         user.is_superuser = True
         user.is_active = True
         user.save()
-        self.stdout.write(self.style.SUCCESS(f"Initial admin '{username}' created."))
+
+        self.stdout.write(
+            self.style.SUCCESS(f"Initial admin '{username}' {action} successfully.")
+        )

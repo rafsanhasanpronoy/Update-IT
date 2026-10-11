@@ -4623,7 +4623,7 @@ _DASHBOARD_LAYOUT = [
         ("Contact Messages", "core_contactmessage", lambda: ContactMessage.objects.filter(status="Unread").count()),
     ]),
     ("System", [
-        ("Users", "auth_user", lambda: get_user_model().objects.count()),
+        ("Users & Staff", "auth_user", lambda: get_user_model().objects.count()),
         ("Groups", "auth_group", lambda: Group.objects.count()),
     ]),
 ]

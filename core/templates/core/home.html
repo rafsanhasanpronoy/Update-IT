@@ -1,0 +1,252 @@
+{% extends "core/base.html" %}
+{% block title %}Update IT — Home{% endblock %}
+
+{% block content %}
+
+<section class="relative max-w-6xl mx-auto px-6 pt-20 pb-24 grid grid-cols-1 md:grid-cols-5 gap-12 items-center overflow-hidden">
+  <span class="hidden md:block absolute -right-10 -top-16 text-[16rem] font-display font-bold text-brand/5 select-none pointer-events-none leading-none">U</span>
+  <div class="md:col-span-3 relative load-stagger">
+    <p data-load-reveal class="eyebrow mb-4">Admissions Open</p>
+    <h1 data-load-reveal class="text-5xl md:text-6xl font-bold leading-[1.05] tracking-tight">
+      Each correction<br>
+      moves you <span class="highlight text-brand">forward.</span>
+    </h1>
+    <p data-load-reveal class="mt-6 text-lg text-muted max-w-lg leading-relaxed">
+      Update IT keeps its batches small and closely monitored, with genuine attendance records, genuine exams, and genuine feedback, so improvement is something you can observe rather than merely wish for.
+    </p>
+    <div data-load-reveal class="mt-9 flex flex-wrap gap-4">
+      <a href="{% url 'apply' %}"
+         class="btn btn-primary">
+        Apply for Admission
+      </a>
+      <a href="{% url 'about' %}"
+         class="btn btn-outline">
+        Learn More
+      </a>
+    </div>
+  </div>
+  <div class="md:col-span-2 relative load-stagger">
+    <div data-load-reveal class="border border-hair p-8 bg-white">
+      <p class="eyebrow mb-5">Why Students Stay</p>
+      <ul class="space-y-4 text-sm">
+        <li class="flex items-start"><svg class="tick-svg" viewBox="0 0 24 24"><path d="M4 13l5 5L20 6"/></svg>Attendance and scores recorded in every class</li>
+        <li class="flex items-start"><svg class="tick-svg" viewBox="0 0 24 24"><path d="M4 13l5 5L20 6"/></svg>Small batches with personal attention from teachers</li>
+        <li class="flex items-start"><svg class="tick-svg" viewBox="0 0 24 24"><path d="M4 13l5 5L20 6"/></svg>Frequent exams graded on a consistent scale</li>
+        <li class="flex items-start"><svg class="tick-svg" viewBox="0 0 24 24"><path d="M4 13l5 5L20 6"/></svg>Guardians kept informed instead of left wondering</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<div class="ruler-divider"></div>
+
+{% if PROGRAM_MATH_IMAGE_URL or PROGRAM_SCIENCE_IMAGE_URL or PROGRAM_KIDS_IMAGE_URL %}
+<section data-reveal class="max-w-6xl mx-auto px-6 py-16">
+  <p class="eyebrow mb-3">Our Programs</p>
+  <h2 class="text-3xl md:text-4xl font-bold tracking-tight mb-8">Three learning paths at Update IT</h2>
+
+  <div class="relative">
+    <div id="programSlider" class="flex gap-6 overflow-x-auto snap-x snap-mandatory pb-4 -mx-6 px-6 scroll-smooth" style="scrollbar-width:none;">
+      {% if PROGRAM_MATH_IMAGE_URL %}
+      <a href="{% url 'admission' %}" class="program-card snap-center shrink-0 w-72 md:w-80">
+        <img src="{{ PROGRAM_MATH_IMAGE_URL }}" alt="Update IT Math Program" class="w-full h-auto">
+      </a>
+      {% endif %}
+      {% if PROGRAM_SCIENCE_IMAGE_URL %}
+      <a href="{% url 'admission' %}" class="program-card snap-center shrink-0 w-72 md:w-80">
+        <img src="{{ PROGRAM_SCIENCE_IMAGE_URL }}" alt="Update IT Science Program" class="w-full h-auto">
+      </a>
+      {% endif %}
+      {% if PROGRAM_KIDS_IMAGE_URL %}
+      <a href="{% url 'admission' %}" class="program-card snap-center shrink-0 w-72 md:w-80">
+        <img src="{{ PROGRAM_KIDS_IMAGE_URL }}" alt="Update IT Kids Program" class="w-full h-auto">
+      </a>
+      {% endif %}
+    </div>
+
+    <button type="button" id="programPrev" aria-label="Previous program"
+            class="hidden md:flex absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 w-11 h-11 items-center justify-center rounded-full bg-white border border-hair shadow-lg hover:bg-surface transition-colors">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
+    <button type="button" id="programNext" aria-label="Next program"
+            class="hidden md:flex absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-11 h-11 items-center justify-center rounded-full bg-white border border-hair shadow-lg hover:bg-surface transition-colors">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M9 18l6-6-6-6"/></svg>
+    </button>
+  </div>
+
+  <div id="programDots" class="flex justify-center gap-2 mt-6"></div>
+</section>
+
+<style>
+  #programSlider::-webkit-scrollbar { display: none; }
+  .program-card {
+    display: block;
+    border-radius: 1.25rem;
+    overflow: hidden;
+    transition: transform 0.3s ease;
+  }
+  .program-card:hover { transform: translateY(-4px); }
+  .program-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--hair, #e5e2d8);
+    transition: background 0.2s ease, width 0.2s ease;
+  }
+  .program-dot.active { background: var(--brand, #830000); width: 22px; }
+</style>
+
+<script>
+  (function () {
+    var slider = document.getElementById('programSlider');
+    var cards = Array.prototype.slice.call(slider.children);
+    if (!cards.length) return;
+
+    var prevBtn = document.getElementById('programPrev');
+    var nextBtn = document.getElementById('programNext');
+    var dotsWrap = document.getElementById('programDots');
+
+    cards.forEach(function (_, i) {
+      var dot = document.createElement('button');
+      dot.type = 'button';
+      dot.className = 'program-dot';
+      dot.setAttribute('aria-label', 'Go to program ' + (i + 1));
+      dot.addEventListener('click', function () {
+        cards[i].scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      });
+      dotsWrap.appendChild(dot);
+    });
+    var dots = Array.prototype.slice.call(dotsWrap.children);
+
+    function updateActiveDot() {
+      var sliderCenter = slider.scrollLeft + slider.clientWidth / 2;
+      var closest = 0;
+      var closestDist = Infinity;
+      cards.forEach(function (card, i) {
+        var cardCenter = card.offsetLeft + card.clientWidth / 2;
+        var dist = Math.abs(cardCenter - sliderCenter);
+        if (dist < closestDist) {
+          closestDist = dist;
+          closest = i;
+        }
+      });
+      dots.forEach(function (dot, i) {
+        dot.classList.toggle('active', i === closest);
+      });
+    }
+
+    slider.addEventListener('scroll', function () {
+      window.requestAnimationFrame(updateActiveDot);
+    });
+
+    prevBtn.addEventListener('click', function () {
+      slider.scrollBy({ left: -(cards[0].clientWidth + 24), behavior: 'smooth' });
+    });
+    nextBtn.addEventListener('click', function () {
+      slider.scrollBy({ left: cards[0].clientWidth + 24, behavior: 'smooth' });
+    });
+
+    updateActiveDot();
+  })();
+</script>
+{% endif %}
+
+{% if admission_infos %}
+<section data-reveal class="max-w-6xl mx-auto px-6 py-20">
+  <p class="eyebrow mb-3">Admission</p>
+  <h2 class="text-3xl font-bold mb-10">Current Programs</h2>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6 stagger">
+    {% for info in admission_infos %}
+    <div data-reveal class="border border-hair p-7 card-lift">
+      {% if info.image_url %}
+      <img src="{{ info.image_url }}" alt="{{ info.title }}" class="w-full h-40 object-cover mb-5 rounded-lg">
+      {% endif %}
+      <h3 class="text-xl font-bold mb-2">{{ info.title }}</h3>
+      {% if info.description %}
+      <p class="text-sm text-muted mb-5 leading-relaxed">{{ info.description }}</p>
+      {% endif %}
+      <div class="flex flex-wrap gap-x-8 gap-y-2 text-sm">
+        {% if info.admission_fee %}
+        <div><span class="text-muted">Admission Fee</span><br>
+          <span class="font-bold">&#2547;{{ info.admission_fee }}</span></div>
+        {% endif %}
+        {% if info.monthly_fee %}
+        <div><span class="text-muted">Monthly Fee</span><br>
+          <span class="font-bold">&#2547;{{ info.monthly_fee }}</span></div>
+        {% endif %}
+        {% if info.duration %}
+        <div><span class="text-muted">Duration</span><br>
+          <span class="font-bold">{{ info.duration }}</span></div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if notices %}
+<section data-reveal class="bg-ink text-white py-20 rounded-[2.5rem] max-w-6xl mx-auto md:mx-6 lg:mx-auto my-4">
+  <div class="max-w-6xl mx-auto px-6 lg:px-10">
+    <div class="flex items-end justify-between mb-10">
+      <div>
+        <p class="eyebrow mb-3">Latest</p>
+        <h2 class="text-3xl font-bold">Notices</h2>
+      </div>
+      <a href="{% url 'notices' %}" class="text-sm font-bold text-brand hover:underline">View all &rarr;</a>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 stagger">
+      {% for notice in notices %}
+      <div data-reveal class="border-t-2 border-brand pt-5 pb-2 px-3 -mx-2 rounded-b-xl transition-all duration-300 hover:bg-white/5 hover:-translate-y-1">
+        {% if notice.image_url %}
+        <img src="{{ notice.image_url }}" alt="{{ notice.title }}" class="w-full h-32 object-cover mb-3 rounded">
+        {% endif %}
+        <p class="text-xs text-white/50 mb-2 font-mono">{{ notice.published_date|date:"d M Y" }}</p>
+        <h3 class="font-bold mb-2">{{ notice.title }}</h3>
+        <p class="text-sm text-white/70 leading-relaxed">{{ notice.description|truncatewords:20 }}</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endif %}
+
+{% if achievements %}
+<section data-reveal class="max-w-6xl mx-auto px-6 py-20">
+  <div class="flex items-end justify-between mb-10">
+    <div>
+      <p class="eyebrow mb-3">Proof of Work</p>
+      <h2 class="text-3xl font-bold">Recent Achievements</h2>
+    </div>
+    <a href="{% url 'achievements' %}" class="text-sm font-bold text-brand hover:underline">View all &rarr;</a>
+  </div>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6 stagger">
+    {% for a in achievements %}
+    <div data-reveal class="border border-hair p-6 card-lift">
+      {% if a.achievement_date %}
+      <p class="text-xs text-muted mb-2">{{ a.achievement_date|date:"d M Y" }}</p>
+      {% endif %}
+      <h3 class="font-bold mb-2 flex items-start"><svg class="tick-svg" viewBox="0 0 24 24"><path d="M4 13l5 5L20 6"/></svg>{{ a.title }}</h3>
+      {% if a.description %}
+      <p class="text-sm text-muted leading-relaxed">{{ a.description|truncatewords:18 }}</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section data-reveal class="border-t border-hair">
+  <div class="max-w-6xl mx-auto px-6 py-16 flex flex-col md:flex-row items-center justify-between gap-6">
+    <div>
+      <h2 class="text-2xl font-bold">Ready to enroll?</h2>
+      <p class="text-muted mt-1">Apply online and we will get in touch with your guardian to verify the details and confirm your admission.</p>
+    </div>
+    <a href="{% url 'apply' %}"
+       class="btn btn-primary whitespace-nowrap">
+      Apply for Admission
+    </a>
+  </div>
+</section>
+
+{% endblock %}

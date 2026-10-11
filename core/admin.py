@@ -1,0 +1,4728 @@
+from datetime import date, datetime, timedelta
+from decimal import Decimal, InvalidOperation
+from io import BytesIO
+
+from django.contrib import admin, messages
+from django.contrib.admin.models import LogEntry
+from django.conf import settings
+from django.core.exceptions import PermissionDenied, ValidationError as DjangoValidationError
+from django.core.paginator import Paginator
+from django.http import HttpResponse, JsonResponse
+from django.shortcuts import get_object_or_404, redirect
+from django.template.response import TemplateResponse
+from django.urls import path, reverse
+from urllib.parse import urlencode
+from django.utils import timezone
+from django.utils.html import format_html
+from django.utils.http import urlencode
+from django.db.models import Count, Q, Sum
+from .results import grade_for, reports_for_student
+from .forms import (
+    AchievementForm, AdmissionApplicationAdminForm, AdmissionInfoForm, AdmissionInquiryAdminForm, BatchForm, ClassForm,
+    ClassScheduleForm, ContactMessageAdminForm, ExamForm, ExamResultForm, ExpenseForm, FacultyForm,
+    GalleryForm, GallerySectionForm, GallerySubsectionForm, NoticeForm, StudentForm,
+    StudentPaymentForm, StudentPaymentReceiptForm, SubjectForm, TeacherSalaryForm,
+)
+import openpyxl
+import re
+
+ 
+
+from .models import (
+    Class,
+    Batch,
+    Faculty,
+    Subject,
+    Student,
+    ClassSchedule,
+    Attendance,
+    FacultyAttendance,
+    Exam,
+    ExamResult,
+    Expense,
+    StudentPayment,
+    StudentPaymentReceipt,
+    TeacherSalary,
+    Achievement,
+    Gallery,
+    GallerySection,
+    GallerySubsection,
+    Notice,
+    AdmissionApplication,
+    AdmissionInfo,
+    AdmissionInquiry,
+    ContactMessage,
+)
+
+# ---------------------------------------------------------
+# Site branding
+# ---------------------------------------------------------
+
+admin.site.site_header = "Update IT Admin"
+admin.site.site_title = "Update IT Admin"
+admin.site.index_title = "Dashboard"
+
+
+# ---------------------------------------------------------
+# Inlines — manage related records from the parent's page
+# ---------------------------------------------------------
+
+class BatchInline(admin.TabularInline):
+    model = Batch
+    extra = 0
+    fields = ("batch_name", "room", "start_time", "end_time")
+
+
+class StudentPaymentInline(admin.TabularInline):
+    model = StudentPayment
+    extra = 0
+    fields = ("payment_type", "amount", "payment_date", "payment_month", "remarks")
+
+
+class AttendanceInline(admin.TabularInline):
+    model = Attendance
+    extra = 0
+    fields = ("batch", "attendance_date", "status", "remarks")
+    autocomplete_fields = ("batch",)
+
+
+class ExamResultInline(admin.TabularInline):
+    model = ExamResult
+    extra = 0
+    fields = ("exam", "subject", "marks", "grade")
+    autocomplete_fields = ("exam", "subject")
+
+
+class ClassScheduleInline(admin.TabularInline):
+    model = ClassSchedule
+    extra = 0
+    fields = ("subject", "teacher", "day_of_week", "start_time", "end_time", "room")
+    autocomplete_fields = ("subject", "teacher")
+
+
+class TeacherSalaryInline(admin.TabularInline):
+    model = TeacherSalary
+    extra = 0
+    fields = ("salary_month", "amount", "payment_date", "status", "remarks")
+
+
+# ---------------------------------------------------------
+# Model admins
+# ---------------------------------------------------------
+
+@admin.register(Class)
+class ClassAdmin(admin.ModelAdmin):
+    # search_fields is still required even though the default changelist
+    # is bypassed below — other admins (Student, AdmissionInquiry, ...)
+    # use autocomplete_fields=("class_obj",), and Django's autocomplete
+    # endpoint looks up search_fields on THIS admin to serve results.
+    search_fields = ("class_name",)
+
+    # ------------------------------------------------------------------
+    # Custom dark-themed pages, wired to the SAME URLs Django's default
+    # admin would generate (admin:core_class_changelist / _add / _change
+    # / _delete) — so every existing link into this admin keeps working.
+    # Trade-off: this replaces the default list/add/change/delete views
+    # entirely, so BatchInline (adding batches from this page) no longer
+    # applies. Batches have their own dedicated page now, so that's fine.
+    # ------------------------------------------------------------------
+
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        classes = (
+            Class.objects.all()
+            .prefetch_related("batch_set")
+            .order_by("-academic_year", "class_name")
+        )
+        context = dict(
+            self.admin_site.each_context(request),
+            classes=classes,
+            active_section="classes",
+            active_page="class_list",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/class/list.html", context)
+
+    def get_urls(self):
+        # Adds a read-only "view" page alongside the existing add/change/
+        # delete URLs, at admin/core/class/<id>/view/, reverse()-able as
+        # admin:core_class_view.
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<path:object_id>/view/",
+                self.admin_site.admin_view(self.view_view),
+                name="core_class_view",
+            ),
+        ]
+        return custom_urls + urls
+
+    def add_view(self, request, form_url="", extra_context=None):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        return self._class_form_view(request, instance=None)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(Class, pk=object_id)
+        return self._class_form_view(request, instance=instance)
+
+    def view_view(self, request, object_id):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(Class, pk=object_id)
+        batches = instance.batch_set.all().order_by("batch_name")
+        students = (
+            Student.objects.filter(class_obj=instance)
+            .select_related("batch")
+            .order_by("full_name")
+        )
+        context = dict(
+            self.admin_site.each_context(request),
+            instance=instance,
+            batches=batches,
+            students=students,
+            active_section="classes",
+            active_page="class_view",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/class/detail.html", context)
+
+    def _class_form_view(self, request, instance):
+        if request.method == "POST":
+            form = ClassForm(request.POST, instance=instance)
+            if form.is_valid():
+                form.save()
+                self.message_user(
+                    request,
+                    f"Class was {'updated' if instance else 'added'}.",
+                    level=messages.SUCCESS,
+                )
+                return redirect("admin:core_class_changelist")
+        else:
+            form = ClassForm(instance=instance)
+        context = dict(
+            self.admin_site.each_context(request),
+            form=form,
+            instance=instance,
+            active_section="classes",
+            active_page="class_edit" if instance else "class_add",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/class/form.html", context)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if not self.has_delete_permission(request):
+            raise PermissionDenied
+        if request.method == "POST":
+            obj = get_object_or_404(Class, pk=object_id)
+            obj.delete()
+            self.message_user(request, "Class deleted.", level=messages.SUCCESS)
+        return redirect("admin:core_class_changelist")
+
+
+@admin.register(Batch)
+class BatchAdmin(admin.ModelAdmin):
+    # Required for autocomplete on other admins (e.g. Student, ClassSchedule
+    # use autocomplete_fields including "batch") — see note on ClassAdmin.
+    search_fields = ("batch_name", "room")
+
+    # Same pattern as ClassAdmin: same admin URLs, custom dark templates.
+    # Trade-off: ClassScheduleInline (adding schedules from this page) no
+    # longer applies — manage those from Class Schedules in the admin
+    # directly, which is unaffected by this change.
+
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        batches = Batch.objects.select_related("class_obj").order_by(
+            "class_obj__class_name", "batch_name"
+        )
+        class_filter_id = request.GET.get("class")
+        active_class = None
+        if class_filter_id:
+            batches = batches.filter(class_obj_id=class_filter_id)
+            active_class = Class.objects.filter(pk=class_filter_id).first()
+        context = dict(
+            self.admin_site.each_context(request),
+            batches=batches,
+            active_class=active_class,
+            active_section="batches",
+            active_page="batch_list",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/batch/list.html", context)
+
+    def get_urls(self):
+        # Adds a read-only "view" page alongside the existing add/change/
+        # delete URLs, at admin/core/batch/<id>/view/, reverse()-able as
+        # admin:core_batch_view.
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<path:object_id>/view/",
+                self.admin_site.admin_view(self.view_view),
+                name="core_batch_view",
+            ),
+        ]
+        return custom_urls + urls
+
+    def add_view(self, request, form_url="", extra_context=None):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        lock_class = None
+        class_id = request.GET.get("class")
+        if class_id:
+            lock_class = get_object_or_404(Class, pk=class_id)
+        return self._batch_form_view(request, instance=None, lock_class=lock_class)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(Batch, pk=object_id)
+        return self._batch_form_view(request, instance=instance)
+
+    def view_view(self, request, object_id):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(
+            Batch.objects.select_related("class_obj"), pk=object_id
+        )
+        students = (
+            Student.objects.filter(batch=instance)
+            .select_related("class_obj")
+            .order_by("full_name")
+        )
+        context = dict(
+            self.admin_site.each_context(request),
+            instance=instance,
+            students=students,
+            active_section="batches",
+            active_page="batch_view",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/batch/detail.html", context)
+
+    def _batch_form_view(self, request, instance, lock_class=None):
+        if request.method == "POST":
+            form = BatchForm(request.POST, instance=instance, lock_class=lock_class)
+            if form.is_valid():
+                form.save()
+                self.message_user(
+                    request,
+                    f"Batch was {'updated' if instance else 'added'}.",
+                    level=messages.SUCCESS,
+                )
+                if lock_class is not None:
+                    return redirect(
+                        reverse("admin:core_batch_changelist") + f"?class={lock_class.pk}"
+                    )
+                return redirect("admin:core_batch_changelist")
+        else:
+            form = BatchForm(instance=instance, lock_class=lock_class)
+        context = dict(
+            self.admin_site.each_context(request),
+            form=form,
+            instance=instance,
+            locked_class=lock_class,
+            active_section="batches",
+            active_page="batch_edit" if instance else "batch_add",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/batch/form.html", context)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if not self.has_delete_permission(request):
+            raise PermissionDenied
+        if request.method == "POST":
+            obj = get_object_or_404(Batch, pk=object_id)
+            obj.delete()
+            self.message_user(request, "Batch deleted.", level=messages.SUCCESS)
+        return redirect("admin:core_batch_changelist")
+
+
+@admin.register(Faculty)
+class FacultyAdmin(admin.ModelAdmin):
+    # Required for autocomplete on other admins (ClassScheduleInline,
+    # TeacherSalaryAdmin use autocomplete_fields=("teacher",)) — see
+    # note on ClassAdmin.
+    search_fields = ("full_name", "phone", "email")
+
+    # Same pattern as ClassAdmin/BatchAdmin: same admin URLs, custom
+    # templates. Trade-off: ClassScheduleInline/TeacherSalaryInline no
+    # longer show on this page — the detail page below lists both
+    # instead.
+
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        faculty_list = Faculty.objects.all().order_by("full_name")
+        context = dict(
+            self.admin_site.each_context(request),
+            faculty_list=faculty_list,
+            active_section="faculty",
+            active_page="faculty_list",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/faculty/list.html", context)
+
+    def get_urls(self):
+        # Adds a read-only "view" page alongside the existing add/change/
+        # delete URLs, at admin/core/faculty/<id>/view/, reverse()-able
+        # as admin:core_faculty_view.
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<path:object_id>/view/",
+                self.admin_site.admin_view(self.view_view),
+                name="core_faculty_view",
+            ),
+        ]
+        return custom_urls + urls
+
+    def add_view(self, request, form_url="", extra_context=None):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        return self._faculty_form_view(request, instance=None)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(Faculty, pk=object_id)
+        return self._faculty_form_view(request, instance=instance)
+
+    def view_view(self, request, object_id):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(Faculty, pk=object_id)
+        schedule = (
+            ClassSchedule.objects.filter(teacher=instance)
+            .select_related("batch", "batch__class_obj", "subject")
+            .order_by("day_of_week", "start_time")
+        )
+        salaries = (
+            TeacherSalary.objects.filter(teacher=instance)
+            .order_by("-salary_month")
+        )
+        salary_summary = salaries.aggregate(
+            total_paid=Sum("paid_amount"),
+            current_due=Sum("due_amount"),
+        )
+        context = dict(
+            self.admin_site.each_context(request),
+            instance=instance,
+            schedule=schedule,
+            salaries=salaries,
+            total_paid=salary_summary["total_paid"] or 0,
+            current_due=salary_summary["current_due"] or 0,
+            latest_salary=salaries.first(),
+            active_section="faculty",
+            active_page="faculty_view",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/faculty/detail.html", context)
+
+    def _faculty_form_view(self, request, instance):
+        if request.method == "POST":
+            form = FacultyForm(request.POST, request.FILES, instance=instance)
+            if form.is_valid():
+                form.save()
+                self.message_user(
+                    request,
+                    f"Faculty member was {'updated' if instance else 'added'}.",
+                    level=messages.SUCCESS,
+                )
+                return redirect("admin:core_faculty_changelist")
+        else:
+            form = FacultyForm(instance=instance)
+        context = dict(
+            self.admin_site.each_context(request),
+            form=form,
+            instance=instance,
+            active_section="faculty",
+            active_page="faculty_edit" if instance else "faculty_add",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/faculty/form.html", context)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if not self.has_delete_permission(request):
+            raise PermissionDenied
+        if request.method == "POST":
+            obj = get_object_or_404(Faculty, pk=object_id)
+            obj.delete()
+            self.message_user(request, "Faculty member deleted.", level=messages.SUCCESS)
+        return redirect("admin:core_faculty_changelist")
+
+
+@admin.register(Subject)
+class SubjectAdmin(admin.ModelAdmin):
+    # Required for autocomplete on other admins (ClassScheduleInline,
+    # ExamResultAdmin use autocomplete_fields=("subject",)) — see note
+    # on ClassAdmin.
+    search_fields = ("subject_name", "subject_code")
+
+    # Same pattern as ClassAdmin/FacultyAdmin: same admin URLs, custom
+    # templates.
+
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        subjects = (
+            Subject.objects.select_related("class_obj")
+            .order_by("class_obj__class_name", "subject_name")
+        )
+        context = dict(
+            self.admin_site.each_context(request),
+            subjects=subjects,
+            active_section="subjects",
+            active_page="subject_list",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/subject/list.html", context)
+
+    def get_urls(self):
+        # Adds a read-only "view" page alongside the existing add/change/
+        # delete URLs, at admin/core/subject/<id>/view/, reverse()-able
+        # as admin:core_subject_view. Also adds the live subject-code
+        # preview endpoint the Add Subject form calls.
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "preview-code/",
+                self.admin_site.admin_view(self.preview_code_view),
+                name="core_subject_preview_code",
+            ),
+            path(
+                "<path:object_id>/view/",
+                self.admin_site.admin_view(self.view_view),
+                name="core_subject_view",
+            ),
+        ]
+        return custom_urls + urls
+
+    def preview_code_view(self, request):
+        """
+        AJAX endpoint the Add Subject form calls (via fetch) whenever
+        the subject name or class changes, so staff see the code build
+        before saving. Reuses _generate_subject_code directly so the
+        preview can't drift from what actually gets saved — it's still
+        just a preview, since a same-named subject saved a moment later
+        by someone else could shift the collision-avoidance suffix.
+        """
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        subject_name = request.GET.get("subject_name", "").strip()
+        class_id = request.GET.get("class_obj")
+        if not subject_name or not class_id:
+            return JsonResponse({"code": None})
+        class_obj = Class.objects.filter(pk=class_id).first()
+        if not class_obj:
+            return JsonResponse({"code": None})
+        return JsonResponse({"code": _generate_subject_code(subject_name, class_obj)})
+
+    def add_view(self, request, form_url="", extra_context=None):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        return self._subject_form_view(request, instance=None)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(Subject, pk=object_id)
+        return self._subject_form_view(request, instance=instance)
+
+    def view_view(self, request, object_id):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(Subject, pk=object_id)
+        schedule = (
+            ClassSchedule.objects.filter(subject=instance)
+            .select_related("batch", "batch__class_obj", "teacher")
+            .order_by("day_of_week", "start_time")
+        )
+        exams = (
+            Exam.objects.filter(examresult__subject=instance)
+            .distinct()
+            .select_related("class_obj")
+            .order_by("-exam_date")
+        )
+        context = dict(
+            self.admin_site.each_context(request),
+            instance=instance,
+            schedule=schedule,
+            exams=exams,
+            active_section="subjects",
+            active_page="subject_view",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/subject/detail.html", context)
+
+    def _subject_form_view(self, request, instance):
+        if request.method == "POST":
+            form = SubjectForm(request.POST, instance=instance)
+            if form.is_valid():
+                subject = form.save(commit=False)
+                if not instance:
+                    # Only generate a code for brand-new subjects — never
+                    # regenerate one for an existing subject on edit.
+                    subject.subject_code = _generate_subject_code(
+                        subject.subject_name, subject.class_obj
+                    )
+                subject.save()
+                self.message_user(
+                    request,
+                    f"Subject was {'updated' if instance else 'added'}.",
+                    level=messages.SUCCESS,
+                )
+                return redirect("admin:core_subject_changelist")
+        else:
+            form = SubjectForm(instance=instance)
+        context = dict(
+            self.admin_site.each_context(request),
+            form=form,
+            instance=instance,
+            active_section="subjects",
+            active_page="subject_edit" if instance else "subject_add",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/subject/form.html", context)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if not self.has_delete_permission(request):
+            raise PermissionDenied
+        if request.method == "POST":
+            obj = get_object_or_404(Subject, pk=object_id)
+            obj.delete()
+            self.message_user(request, "Subject deleted.", level=messages.SUCCESS)
+        return redirect("admin:core_subject_changelist")
+
+
+ 
+
+
+def _extract_number(text, default=1):
+    """Pulls the first run of digits out of a string — 'Class 4' -> 4."""
+    match = re.search(r"(\d+)", text or "")
+    return int(match.group(1)) if match else default
+
+
+def _subject_code_prefix(subject_name):
+    """First 3 letters of the subject name, title-cased: 'Science' -> 'Sci'."""
+    cleaned = re.sub(r"[^A-Za-z]", "", subject_name or "")
+    if not cleaned:
+        # Fallback for names with no usable Latin letters (e.g. pure
+        # Bangla script) — still need something short and stable.
+        return "Sub"
+    return cleaned[:3].capitalize()
+
+
+def _class_code_part(class_obj):
+    """'Class Pronoy' -> 'classpronoy'; 'Class 6' -> 'class6'."""
+    slug = re.sub(r"[^A-Za-z0-9]", "", class_obj.class_name or "").lower()
+    return slug or f"class{class_obj.id}"
+
+
+def _generate_subject_code(subject_name, class_obj):
+    """
+    Builds codes like Sci-class6 — first 3 letters of the subject name,
+    then the class. Staff never type this in; see SubjectForm and
+    SubjectAdmin._subject_form_view.
+    """
+    prefix = f"{_subject_code_prefix(subject_name)}-{_class_code_part(class_obj)}"
+    code = prefix
+    suffix = 1
+    # Guards against collisions within the same class (e.g. "Science"
+    # and "Sciences" both in Class 6 -> both start with "Sci-class6").
+    while Subject.objects.filter(subject_code=code).exists():
+        suffix += 1
+        code = f"{prefix}{suffix}"
+    return code
+
+
+def _pagination_range(current, total, window=2):
+    """
+    Builds a page-number list with None as an ellipsis marker, e.g.
+    [1, None, 4, 5, 6, None, 12] for page 5 of 12. Always keeps the
+    first and last page visible, plus a window around the current page.
+    """
+    pages = []
+    for p in range(1, total + 1):
+        if p == 1 or p == total or (current - window <= p <= current + window):
+            pages.append(p)
+        elif pages and pages[-1] is not None:
+            pages.append(None)
+    return pages
+
+
+def _generate_student_code(class_obj, batch):
+    """
+    Builds codes like UIT4B1001 — Update IT, Class 4, 1st batch of that
+    class, 1st student in that class+batch. Staff never type this in.
+    """
+    class_num = _extract_number(class_obj.class_name, default=class_obj.id)
+
+    if batch:
+        sibling_ids = list(
+            Batch.objects.filter(class_obj=class_obj).order_by("id").values_list("id", flat=True)
+        )
+        batch_num = sibling_ids.index(batch.id) + 1 if batch.id in sibling_ids else 1
+    else:
+        batch_num = 0  # no batch assigned yet
+
+    prefix = f"UIT{class_num}B{batch_num}"
+    seq = Student.objects.filter(student_code__startswith=prefix).count() + 1
+    code = f"{prefix}{seq:03d}"
+
+    # Guards against a stale count after deletions causing a collision.
+    while Student.objects.filter(student_code=code).exists():
+        seq += 1
+        code = f"{prefix}{seq:03d}"
+    return code
+
+
+def _generate_receipt_number():
+    """
+    Builds receipt numbers like SAL-2026-00001 — sequential within the
+    current calendar year, never reused. Staff never type this in; it's
+    only ever set once, when a salary record is first created.
+    """
+    year = timezone.localdate().year
+    prefix = f"SAL-{year}-"
+    seq = TeacherSalary.objects.filter(receipt_number__startswith=prefix).count() + 1
+    receipt_number = f"{prefix}{seq:05d}"
+
+    while TeacherSalary.objects.filter(receipt_number=receipt_number).exists():
+        seq += 1
+        receipt_number = f"{prefix}{seq:05d}"
+    return receipt_number
+
+
+def _generate_payment_receipt_number():
+    """Builds student payment receipt numbers like PAY-2026-00001 —
+    sequential within the current calendar year, never reused."""
+    year = timezone.localdate().year
+    prefix = f"PAY-{year}-"
+    seq = StudentPaymentReceipt.objects.filter(receipt_number__startswith=prefix).count() + 1
+    receipt_number = f"{prefix}{seq:05d}"
+
+    while StudentPaymentReceipt.objects.filter(receipt_number=receipt_number).exists():
+        seq += 1
+        receipt_number = f"{prefix}{seq:05d}"
+    return receipt_number
+
+
+# Column headers for the bulk student enrollment template — order matters,
+# since the upload view reads cells by position after checking these
+# headers match. Keep this in sync with the template generator and the
+# row parser below.
+BULK_STUDENT_LEGACY_HEADERS = [
+    "Full Name",
+    "Class Name",
+    "Academic Year",
+    "Batch Name",
+    "Gender",
+    "Date of Birth (YYYY-MM-DD)",
+    "Student Phone",
+    "Father's Name",
+    "Father's Phone",
+    "Mother's Name",
+    "Mother's Phone",
+    "Address",
+    "Admission Date (YYYY-MM-DD)",
+    "Status",
+]
+
+# Added later, always at the END so a file saved from the old 14-column
+# template is still accepted (its new fields simply stay empty). When a
+# file does include these columns, the same required fields as the
+# Add Student form are enforced — see _process_bulk_upload.
+BULK_STUDENT_NEW_HEADERS = [
+    "School / College Name",
+    "Blood Group",
+    "Reference (optional)",
+]
+
+BULK_STUDENT_HEADERS = BULK_STUDENT_LEGACY_HEADERS + BULK_STUDENT_NEW_HEADERS
+
+
+def _clean_phone(value):
+    """Excel stores a typed phone number as a NUMBER, which drops the
+    leading zero (01700000000 -> 1700000000) and can arrive as a float
+    (1700000000.0). Turn it back into the text people meant."""
+    if value in (None, ""):
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    text = str(value).strip()
+    # A 10-digit number starting with 1 is a Bangladeshi mobile number
+    # that lost its leading 0.
+    if text.isdigit() and len(text) == 10 and text.startswith("1"):
+        text = "0" + text
+    return text
+
+
+def _parse_blood_group(value):
+    """'o +', 'AB-', 'a+' -> 'O+', 'AB-', 'A+'. Returns "" for a blank
+    cell and None for something that isn't a real blood group."""
+    if value in (None, ""):
+        return ""
+    text = str(value).strip().upper().replace(" ", "")
+    text = text.replace("\u2212", "-").replace("\u2013", "-")
+    valid = {code for code, _label in Student.BLOOD_GROUPS}
+    return text if text in valid else None
+
+
+def _parse_bulk_date(value):
+    """Accepts an Excel-native date/datetime cell, or a YYYY-MM-DD /
+    DD/MM/YYYY / DD-MM-YYYY string. Returns None if empty or unparsable."""
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        value = value.strip()
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+            try:
+                return datetime.strptime(value, fmt).date()
+            except ValueError:
+                continue
+    return None
+
+
+# Fixed leading columns for the exam result mark-sheet template — the
+# rest of the header row is one column per subject in that exam's class,
+# generated dynamically since it differs exam to exam.
+BULK_EXAMRESULT_FIXED_HEADERS = ["Student ID", "Full Name"]
+
+
+@admin.register(Student)
+class StudentAdmin(admin.ModelAdmin):
+    # Still required: Attendance/ExamResult/StudentPayment admins use
+    # autocomplete_fields=("student",), which relies on search_fields here.
+    search_fields = (
+        "student_code",
+        "full_name",
+        "student_phone",
+        "father_name",
+        "father_phone",
+        "mother_name",
+        "mother_phone",
+    )
+
+    # Same pattern as ClassAdmin/BatchAdmin: same admin URLs, custom light
+    # templates. Trade-off: StudentPaymentInline / AttendanceInline /
+    # ExamResultInline no longer show on this page — manage those from
+    # their own sections in the sidebar instead.
+
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        students = Student.objects.select_related("class_obj", "batch").order_by("full_name")
+
+        class_filter_id = request.GET.get("class")
+        active_class = None
+        if class_filter_id:
+            students = students.filter(class_obj_id=class_filter_id)
+            active_class = Class.objects.filter(pk=class_filter_id).first()
+
+        query = request.GET.get("q", "").strip()
+        if query:
+            students = students.filter(
+                Q(full_name__icontains=query)
+                | Q(student_code__icontains=query)
+                | Q(student_phone__icontains=query)
+            )
+
+        # Search/filter narrows the full table first — pagination only
+        # applies to whatever that search matched, so a search always
+        # finds a student regardless of which page they'd normally fall
+        # on, and never needs "page 1" to be selected first.
+        total_count = students.count()
+        paginator = Paginator(students, 10)
+        page_obj = paginator.get_page(request.GET.get("page"))
+
+        preserved_params = request.GET.copy()
+        preserved_params.pop("page", None)
+        preserved_querystring = preserved_params.urlencode()
+
+        context = dict(
+            self.admin_site.each_context(request),
+            students=page_obj,
+            page_obj=page_obj,
+            page_range=_pagination_range(page_obj.number, paginator.num_pages),
+            preserved_querystring=preserved_querystring,
+            total_count=total_count,
+            classes=Class.objects.order_by("-academic_year", "class_name"),
+            active_class=active_class,
+            search_query=query,
+            active_section="students",
+            active_page="student_list",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/student/list.html", context)
+
+    def get_urls(self):
+        # Adds a read-only "view" page alongside the existing add/change/
+        # delete URLs, at admin/core/student/<id>/view/, reverse()-able as
+        # admin:core_student_view. Also adds the live student-code
+        # preview endpoint and the bulk enrollment pages.
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "bulk-upload/",
+                self.admin_site.admin_view(self.bulk_upload_view),
+                name="core_student_bulk_upload",
+            ),
+            path(
+                "bulk-template/",
+                self.admin_site.admin_view(self.bulk_template_view),
+                name="core_student_bulk_template",
+            ),
+            path(
+                "preview-code/",
+                self.admin_site.admin_view(self.preview_code_view),
+                name="core_student_preview_code",
+            ),
+            path(
+                "<int:student_id>/admission-form/",
+                self.admin_site.admin_view(self.admission_form_view),
+                name="core_student_admission_form",
+            ),
+            path(
+                "<path:object_id>/view/",
+                self.admin_site.admin_view(self.view_view),
+                name="core_student_view",
+            ),
+        ]
+        return custom_urls + urls
+
+    def admission_form_view(self, request, student_id):
+        """Printable admission form — photo, class/batch/group, guardian
+        details, admission date. Same printable-HTML pattern as the
+        payment and salary receipts, not a PDF, so it opens instantly and
+        still prints cleanly via the browser's own Print dialog."""
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        student = get_object_or_404(
+            Student.objects.select_related("class_obj", "batch"), pk=student_id
+        )
+        context = {
+            "student": student,
+            "academy_name": "Update IT",
+            "generated_at": timezone.localtime(),
+        }
+        return TemplateResponse(request, "admin/core/student_admission_form.html", context)
+
+    def add_view(self, request, form_url="", extra_context=None):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        return self._student_form_view(request, instance=None)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(Student, pk=object_id)
+        return self._student_form_view(request, instance=instance)
+
+    def view_view(self, request, object_id):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(
+            Student.objects.select_related("class_obj", "batch"), pk=object_id
+        )
+        receipts = StudentPaymentReceipt.objects.filter(student=instance).order_by("-payment_date")
+        total_paid = sum((r.net_total for r in receipts), Decimal("0"))
+        context = dict(
+            self.admin_site.each_context(request),
+            instance=instance,
+            exam_reports=reports_for_student(instance),
+            receipts=receipts,
+            total_paid=total_paid,
+            active_section="students",
+            active_page="student_view",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/student/detail.html", context)
+
+    def _student_form_view(self, request, instance):
+        # Arriving from an application's "Start admission" button passes
+        # ?application=<id>: pre-fill the form from it, and once the
+        # student is saved, mark that application Admitted and link it.
+        application = None
+        if instance is None:
+            app_id = request.POST.get("application") or request.GET.get("application")
+            if app_id and str(app_id).isdigit():
+                application = (
+                    AdmissionApplication.objects.select_related("course")
+                    .filter(pk=app_id).exclude(status="Admitted").first()
+                )
+
+        if request.method == "POST":
+            form = StudentForm(request.POST, request.FILES, instance=instance)
+            if form.is_valid():
+                student = form.save(commit=False)
+                if not instance:
+                    # Only generate a code for brand-new students — never
+                    # regenerate one for an existing student on edit.
+                    student.student_code = _generate_student_code(
+                        student.class_obj, student.batch
+                    )
+                student.save()
+                if application is not None:
+                    application.status = "Admitted"
+                    application.student = student
+                    application.save(update_fields=["status", "student"])
+                self.message_user(
+                    request,
+                    f"Student was {'updated' if instance else 'added'}."
+                    + (f" Application {application.reference_code} marked Admitted."
+                       if application is not None else ""),
+                    level=messages.SUCCESS,
+                )
+                return redirect("admin:core_student_changelist")
+        else:
+            initial = _student_initial_from_application(application) if application else {}
+            form = StudentForm(instance=instance, initial=initial)
+        context = dict(
+            self.admin_site.each_context(request),
+            form=form,
+            instance=instance,
+            source_application=application,
+            active_section="students",
+            active_page="student_edit" if instance else "student_add",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/student/form.html", context)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if not self.has_delete_permission(request):
+            raise PermissionDenied
+        if request.method == "POST":
+            obj = get_object_or_404(Student, pk=object_id)
+            obj.delete()
+            self.message_user(request, "Student deleted.", level=messages.SUCCESS)
+        return redirect("admin:core_student_changelist")
+
+    def preview_code_view(self, request):
+        """
+        AJAX endpoint the Add Student form calls (via fetch) whenever
+        Class or Batch changes, so staff see what student_code WILL be
+        before saving. Reuses _generate_student_code directly rather
+        than duplicating the logic in JS, so the preview can never
+        drift out of sync with what actually gets saved. It's still
+        just a preview — the real code is generated again at save time,
+        which is what actually reserves it.
+        """
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        class_id = request.GET.get("class_obj")
+        if not class_id:
+            return JsonResponse({"code": None})
+        class_obj = Class.objects.filter(pk=class_id).first()
+        if not class_obj:
+            return JsonResponse({"code": None})
+        batch_id = request.GET.get("batch")
+        batch = Batch.objects.filter(pk=batch_id, class_obj=class_obj).first() if batch_id else None
+        return JsonResponse({"code": _generate_student_code(class_obj, batch)})
+
+    def bulk_template_view(self, request):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = "Students"
+        sheet.append(BULK_STUDENT_HEADERS)
+        sheet.append([
+            "Jane Doe", "Class 6", 2026, "Morning", "Female",
+            "2014-05-12", "01700000000", "John Doe", "01700000001",
+            "Mary Doe", "01700000002", "House 12, Road 4, Dhaka",
+            "2026-01-10", "Active",
+            "Dhaka Residential School", "O+", "",
+        ])
+        for col_idx in range(1, len(BULK_STUDENT_HEADERS) + 1):
+            sheet.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = 24
+
+        # Phone columns as plain text, so Excel doesn't strip the leading 0.
+        last_row = 500
+        for col_letter in ("G", "I", "K"):
+            for row_idx in range(2, last_row + 1):
+                sheet[f"{col_letter}{row_idx}"].number_format = "@"
+
+        # Blood group as a dropdown (column P).
+        from openpyxl.worksheet.datavalidation import DataValidation
+        blood_codes = ",".join(code for code, _label in Student.BLOOD_GROUPS)
+        blood_validation = DataValidation(
+            type="list", formula1=f'"{blood_codes}"', allow_blank=True,
+            showErrorMessage=True, errorTitle="Blood group",
+            error="Pick one of: " + blood_codes.replace(",", ", "),
+        )
+        sheet.add_data_validation(blood_validation)
+        blood_validation.add(f"P2:P{last_row}")
+
+        buffer = BytesIO()
+        workbook.save(buffer)
+        buffer.seek(0)
+        response = HttpResponse(
+            buffer.read(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = 'attachment; filename="student_bulk_upload_template.xlsx"'
+        return response
+
+    def bulk_upload_view(self, request):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+
+        results = None
+        if request.method == "POST":
+            excel_file = request.FILES.get("excel_file")
+            if not excel_file:
+                self.message_user(request, "Please select a file to upload.", level=messages.ERROR)
+            else:
+                results = self._process_bulk_upload(excel_file)
+
+        context = dict(
+            self.admin_site.each_context(request),
+            results=results,
+            active_section="students",
+            active_page="student_bulk_upload",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/student/bulk_upload.html", context)
+
+    def _process_bulk_upload(self, excel_file):
+        """
+        Reads the uploaded workbook row by row, creating one Student per
+        valid row. Processes sequentially (not bulk_create) so each
+        student_code generation sees the previous row's save — this is
+        what keeps sequence numbers correct when a file adds several
+        students to the same class+batch at once.
+
+        Returns a dict with created_count, errors (list of "Row N: ..."
+        strings), and created (list of (name, code) for the summary).
+        """
+        try:
+            workbook = openpyxl.load_workbook(excel_file, data_only=True)
+        except Exception:
+            return {"created_count": 0, "created": [], "errors": [
+                "That file could not be read. Make sure it is a valid .xlsx file, preferably the downloaded template with your rows added."
+            ]}
+
+        sheet = workbook.active
+        header_row = [str(c.value).strip() if c.value is not None else "" for c in sheet[1]]
+        legacy_count = len(BULK_STUDENT_LEGACY_HEADERS)
+        expected = [h.split(" (")[0] for h in BULK_STUDENT_LEGACY_HEADERS]
+        got = [h.split(" (")[0] for h in header_row[:legacy_count]]
+        if got != expected:
+            return {"created_count": 0, "created": [], "errors": [
+                "The column headers differ from the template. Please download the template below and use it unchanged, adding your rows underneath."
+            ]}
+
+        # Old 14-column files are still accepted. If ANY of the newer
+        # columns are present, all three must be there and correctly named.
+        expected_new = [h.split(" (")[0] for h in BULK_STUDENT_NEW_HEADERS]
+        got_new = [h.split(" (")[0] for h in header_row[legacy_count:len(BULK_STUDENT_HEADERS)]]
+        has_new_columns = any(got_new)
+        if has_new_columns and got_new != expected_new:
+            return {"created_count": 0, "created": [], "errors": [
+                "The newer columns (School / College Name, Blood Group, Reference) differ from the template. Please download the latest template and use it unchanged."
+            ]}
+
+        created = []
+        errors = []
+        status_values = {c[0].lower(): c[0] for c in Student._meta.get_field("status").choices}
+        gender_values = {"male": "Male", "female": "Female", "other": "Other"}
+
+        for row_num, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+            if row is None or all(v in (None, "") for v in row):
+                continue  # skip fully blank rows
+
+            (full_name, class_name, academic_year, batch_name, gender,
+             dob, phone, father_name, father_phone, mother_name,
+             mother_phone, address, admission_date, status,
+             institution_name, blood_group_raw, reference) = (
+                list(row) + [None] * (len(BULK_STUDENT_HEADERS) - len(row))
+            )[:len(BULK_STUDENT_HEADERS)]
+
+            full_name = (str(full_name).strip() if full_name else "")
+            if not full_name:
+                errors.append(f"Row {row_num}: Full Name is missing, so it was skipped.")
+                continue
+
+            class_name = (str(class_name).strip() if class_name else "")
+            if not class_name or not academic_year:
+                errors.append(f"Row {row_num} ({full_name}): Class Name or Academic Year is missing, so it was skipped.")
+                continue
+            try:
+                academic_year_int = int(academic_year)
+            except (TypeError, ValueError):
+                errors.append(f"Row {row_num} ({full_name}): Academic Year needs to be a number, so it was skipped.")
+                continue
+            class_obj = Class.objects.filter(
+                class_name__iexact=class_name, academic_year=academic_year_int
+            ).first()
+            if not class_obj:
+                errors.append(
+                    f"Row {row_num} ({full_name}): no class found matching "
+                    f"'{class_name}' ({academic_year_int}), so it was skipped."
+                )
+                continue
+
+            batch = None
+            batch_name = (str(batch_name).strip() if batch_name else "")
+            if batch_name:
+                batch = Batch.objects.filter(class_obj=class_obj, batch_name__iexact=batch_name).first()
+                if not batch:
+                    errors.append(
+                        f"Row {row_num} ({full_name}): no batch found matching "
+                        f"'{batch_name}' in {class_obj.class_name}, so it was skipped."
+                    )
+                    continue
+
+            resolved_gender = gender_values.get(str(gender).strip().lower()) if gender else ""
+            if gender and not resolved_gender:
+                errors.append(
+                    f"Row {row_num} ({full_name}): Gender '{gender}' is not recognized. "
+                    f"Use Male, Female or Other; the row was skipped."
+                )
+                continue
+            resolved_status = status_values.get(str(status).strip().lower()) if status else "Active"
+            if status and not resolved_status:
+                errors.append(
+                    f"Row {row_num} ({full_name}): Status '{status}' is not recognized. "
+                    f"Use one of {', '.join(status_values.values())}; the row was skipped."
+                )
+                continue
+
+            # A date typed in a format we can't read used to be dropped
+            # silently — flag it instead so it doesn't quietly go missing.
+            dob_date = _parse_bulk_date(dob)
+            admission_dt = _parse_bulk_date(admission_date)
+            bad_date = next((
+                label for label, raw, parsed in (
+                    ("Date of Birth", dob, dob_date),
+                    ("Admission Date", admission_date, admission_dt),
+                ) if raw not in (None, "") and parsed is None
+            ), None)
+            if bad_date:
+                errors.append(
+                    f"Row {row_num} ({full_name}): the {bad_date} could not be read. "
+                    f"Use YYYY-MM-DD (for example 2014-05-12); the row was skipped."
+                )
+                continue
+
+            blood_group = _parse_blood_group(blood_group_raw)
+            if blood_group is None:
+                errors.append(
+                    f"Row {row_num} ({full_name}): Blood Group '{blood_group_raw}' is not recognized. "
+                    f"Choose from {', '.join(code for code, _l in Student.BLOOD_GROUPS)}; the row was skipped."
+                )
+                continue
+            institution = str(institution_name).strip() if institution_name else ""
+
+            # Same required fields as the Add Student form — only enforced
+            # for files that use the new template, so old saved 14-column
+            # files keep working.
+            if has_new_columns:
+                missing = [label for label, value in (
+                    ("Date of Birth", dob_date),
+                    ("Admission Date", admission_dt),
+                    ("School / College Name", institution),
+                    ("Blood Group", blood_group),
+                ) if not value]
+                if missing:
+                    errors.append(
+                        f"Row {row_num} ({full_name}): missing {', '.join(missing)} — skipped."
+                    )
+                    continue
+
+            student = Student(
+                class_obj=class_obj,
+                batch=batch,
+                full_name=full_name,
+                gender=resolved_gender,
+                date_of_birth=dob_date,
+                student_phone=_clean_phone(phone),
+                father_name=str(father_name).strip() if father_name else "",
+                father_phone=_clean_phone(father_phone),
+                mother_name=str(mother_name).strip() if mother_name else "",
+                mother_phone=_clean_phone(mother_phone),
+                address=str(address).strip() if address else "",
+                admission_date=admission_dt,
+                institution_name=institution,
+                blood_group=blood_group,
+                reference=str(reference).strip() if reference else "",
+                status=resolved_status,
+            )
+            try:
+                student.full_clean(exclude=["student_code"])
+            except DjangoValidationError as exc:
+                errors.append(f"Row {row_num} ({full_name}): {'; '.join(exc.messages)} — skipped.")
+                continue
+
+            student.student_code = _generate_student_code(class_obj, batch)
+            student.save()
+            created.append((student.full_name, student.student_code))
+
+        return {"created_count": len(created), "created": created, "errors": errors}
+
+@admin.register(ClassSchedule)
+class ClassScheduleAdmin(admin.ModelAdmin):
+    # Required for autocomplete lookups (kept for parity with the other
+    # admins in case a future inline references schedule entries).
+    search_fields = ("subject__subject_name", "teacher__full_name", "batch__batch_name")
+
+    # Same pattern as ClassAdmin/BatchAdmin/SubjectAdmin/StudentAdmin:
+    # same admin URLs, custom templates.
+
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        schedule = (
+            ClassSchedule.objects.select_related(
+                "class_obj", "batch", "subject", "teacher"
+            ).order_by(
+                "class_obj__class_name", "batch__batch_name",
+                "day_of_week", "start_time",
+            )
+        )
+        class_filter_id = request.GET.get("class")
+        active_class = None
+        if class_filter_id:
+            schedule = schedule.filter(class_obj_id=class_filter_id)
+            active_class = Class.objects.filter(pk=class_filter_id).first()
+
+        batch_filter_id = request.GET.get("batch")
+        active_batch = None
+        if batch_filter_id:
+            schedule = schedule.filter(batch_id=batch_filter_id)
+            active_batch = (
+                Batch.objects.select_related("class_obj")
+                .filter(pk=batch_filter_id)
+                .first()
+            )
+        context = dict(
+            self.admin_site.each_context(request),
+            schedule=schedule,
+            active_class=active_class,
+            active_batch=active_batch,
+            active_section="schedules",
+            active_page="classschedule_list",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/classschedule/list.html", context)
+
+    def get_urls(self):
+        # Adds a read-only "view" page alongside the existing add/change/
+        # delete URLs, at admin/core/classschedule/<id>/view/, reverse()-
+        # able as admin:core_classschedule_view.
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "class-options/",
+                self.admin_site.admin_view(self.class_options_view),
+                name="core_classschedule_class_options",
+            ),
+            path(
+                "<path:object_id>/view/",
+                self.admin_site.admin_view(self.view_view),
+                name="core_classschedule_view",
+            ),
+        ]
+        return custom_urls + urls
+
+    def class_options_view(self, request):
+        """
+        Returns the Subjects and Batches that belong to a given Class, as
+        JSON. Powers the live filtering on the Add/Edit Class Schedule
+        form so staff only see options that actually belong to the class
+        they picked — mirrors the cross-check already enforced in
+        ClassScheduleForm.clean().
+        """
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        class_id = request.GET.get("class_obj")
+        class_obj = Class.objects.filter(pk=class_id).first() if class_id else None
+        if not class_obj:
+            return JsonResponse({"subjects": [], "batches": []})
+        subjects = list(
+            Subject.objects.filter(class_obj=class_obj)
+            .order_by("subject_name")
+            .values("id", "subject_name")
+        )
+        batches = list(
+            Batch.objects.filter(class_obj=class_obj)
+            .order_by("batch_name")
+            .values("id", "batch_name")
+        )
+        return JsonResponse({
+            "subjects": [{"id": str(s["id"]), "name": s["subject_name"]} for s in subjects],
+            "batches": [{"id": str(b["id"]), "name": b["batch_name"]} for b in batches],
+        })
+
+    def add_view(self, request, form_url="", extra_context=None):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        lock_batch = None
+        batch_id = request.GET.get("batch")
+        if batch_id:
+            lock_batch = Batch.objects.filter(pk=batch_id).first()
+        lock_class = None
+        if not lock_batch:
+            class_id = request.GET.get("class")
+            if class_id:
+                lock_class = Class.objects.filter(pk=class_id).first()
+        return self._classschedule_form_view(
+            request, instance=None, lock_batch=lock_batch, lock_class=lock_class
+        )
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(ClassSchedule, pk=object_id)
+        return self._classschedule_form_view(request, instance=instance)
+
+    def view_view(self, request, object_id):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(
+            ClassSchedule.objects.select_related(
+                "class_obj", "batch", "subject", "teacher"
+            ),
+            pk=object_id,
+        )
+        context = dict(
+            self.admin_site.each_context(request),
+            instance=instance,
+            active_section="schedules",
+            active_page="classschedule_view",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/classschedule/detail.html", context)
+
+    def _classschedule_form_view(self, request, instance, lock_batch=None, lock_class=None):
+        if request.method == "POST":
+            form = ClassScheduleForm(
+                request.POST, instance=instance, lock_batch=lock_batch, lock_class=lock_class
+            )
+            if form.is_valid():
+                form.save()
+                self.message_user(
+                    request,
+                    f"Class schedule entry was {'updated' if instance else 'added'}.",
+                    level=messages.SUCCESS,
+                )
+                if lock_batch:
+                    return redirect(
+                        f"{reverse('admin:core_classschedule_changelist')}?batch={lock_batch.pk}"
+                    )
+                if lock_class:
+                    return redirect(
+                        f"{reverse('admin:core_classschedule_changelist')}?class={lock_class.pk}"
+                    )
+                return redirect("admin:core_classschedule_changelist")
+        else:
+            form = ClassScheduleForm(instance=instance, lock_batch=lock_batch, lock_class=lock_class)
+        context = dict(
+            self.admin_site.each_context(request),
+            form=form,
+            instance=instance,
+            active_section="schedules",
+            active_page="classschedule_edit" if instance else "classschedule_add",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/classschedule/form.html", context)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if not self.has_delete_permission(request):
+            raise PermissionDenied
+        if request.method == "POST":
+            obj = get_object_or_404(ClassSchedule, pk=object_id)
+            obj.delete()
+            self.message_user(request, "The class schedule entry was deleted.", level=messages.SUCCESS)
+        return redirect("admin:core_classschedule_changelist")
+
+
+@admin.register(Attendance)
+class AttendanceAdmin(admin.ModelAdmin):
+    list_display = (
+        "student",
+        "batch",
+        "attendance_date",
+        "status",
+    )
+
+    list_filter = (
+        "attendance_date",
+        "status",
+        "batch",
+    )
+
+    search_fields = (
+        "student__full_name",
+        "student__student_code",
+    )
+
+    autocomplete_fields = ("student", "batch")
+
+
+@admin.register(FacultyAttendance)
+class FacultyAttendanceAdmin(admin.ModelAdmin):
+    """
+    Deliberately not the plain one-row-at-a-time pattern AttendanceAdmin
+    (student attendance) uses above — marking 10-15 teachers individually
+    every day would be painful. Instead this has one "Mark Attendance"
+    page per day: every faculty member listed at once, a status radio
+    each, submitted together. Editing a past date re-opens the same page
+    pre-filled and re-submits (an upsert), so there's no separate
+    add/change form.
+    """
+
+    search_fields = ("teacher__full_name",)
+
+    def _filtered_records(self, request):
+        records = FacultyAttendance.objects.select_related("teacher").order_by(
+            "-attendance_date", "teacher__full_name"
+        )
+
+        query = request.GET.get("q", "").strip()
+        if query:
+            records = records.filter(teacher__full_name__icontains=query)
+
+        active_status = request.GET.get("status", "").strip()
+        if active_status:
+            records = records.filter(status=active_status)
+
+        teacher_id = request.GET.get("teacher", "").strip()
+        if teacher_id:
+            records = records.filter(teacher_id=teacher_id)
+
+        month_param = request.GET.get("month", "").strip()
+        if month_param:
+            try:
+                month_date = datetime.strptime(month_param, "%Y-%m").date()
+                records = records.filter(
+                    attendance_date__year=month_date.year,
+                    attendance_date__month=month_date.month,
+                )
+            except ValueError:
+                month_param = ""
+
+        return records, query, active_status, teacher_id, month_param
+
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        records, query, active_status, teacher_id, month_param = self._filtered_records(request)
+
+        summary = records.aggregate(
+            present_count=Count("id", filter=Q(status="Present")),
+            absent_count=Count("id", filter=Q(status="Absent")),
+            late_count=Count("id", filter=Q(status="Late")),
+        )
+
+        paginator = Paginator(records, 25)
+        page_obj = paginator.get_page(request.GET.get("page"))
+
+        preserved_params = request.GET.copy()
+        preserved_params.pop("page", None)
+        preserved_querystring = preserved_params.urlencode()
+
+        context = dict(
+            self.admin_site.each_context(request),
+            records=page_obj,
+            page_obj=page_obj,
+            page_range=_pagination_range(page_obj.number, paginator.num_pages),
+            preserved_querystring=preserved_querystring,
+            cards={
+                "total_teachers": Faculty.objects.count(),
+                "present_count": summary["present_count"] or 0,
+                "absent_count": summary["absent_count"] or 0,
+                "late_count": summary["late_count"] or 0,
+            },
+            teachers=Faculty.objects.order_by("full_name"),
+            status_choices=FacultyAttendance._meta.get_field("status").choices,
+            active_status=active_status,
+            active_teacher_id=teacher_id,
+            month_param=month_param,
+            search_query=query,
+            active_section="faculty",
+            active_page="facultyattendance_list",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/facultyattendance/list.html", context)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "mark/",
+                self.admin_site.admin_view(self.mark_view),
+                name="core_facultyattendance_mark",
+            ),
+            path(
+                "monthly-summary/",
+                self.admin_site.admin_view(self.monthly_summary_view),
+                name="core_facultyattendance_monthly_summary",
+            ),
+        ]
+        return custom_urls + urls
+
+    def monthly_summary_view(self, request):
+        """Answers 'how many days was each teacher present/absent/late
+        this month, and how many classes did they take in total' — the
+        numbers Teacher Salaries' Classes Taken field is meant to match."""
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+
+        month_param = request.GET.get("month")
+        if month_param:
+            try:
+                target_month = datetime.strptime(month_param, "%Y-%m").date().replace(day=1)
+            except ValueError:
+                target_month = timezone.localdate().replace(day=1)
+        else:
+            target_month = timezone.localdate().replace(day=1)
+
+        prev_month = (target_month - timedelta(days=1)).replace(day=1)
+        next_month_probe = target_month.replace(day=28) + timedelta(days=4)
+        next_month = next_month_probe.replace(day=1)
+
+        month_records = FacultyAttendance.objects.filter(
+            attendance_date__year=target_month.year,
+            attendance_date__month=target_month.month,
+        )
+
+        rows = []
+        for teacher in Faculty.objects.order_by("full_name"):
+            teacher_records = month_records.filter(teacher=teacher)
+            summary = teacher_records.aggregate(
+                present_days=Count("id", filter=Q(status="Present")),
+                late_days=Count("id", filter=Q(status="Late")),
+                absent_days=Count("id", filter=Q(status="Absent")),
+                total_classes=Sum("classes_taken"),
+            )
+            rows.append({
+                "teacher": teacher,
+                "present_days": summary["present_days"] or 0,
+                "late_days": summary["late_days"] or 0,
+                "absent_days": summary["absent_days"] or 0,
+                "total_classes": summary["total_classes"] or 0,
+            })
+
+        context = dict(
+            self.admin_site.each_context(request),
+            rows=rows,
+            target_month=target_month,
+            target_month_label=target_month.strftime("%B %Y"),
+            prev_month=prev_month.strftime("%Y-%m"),
+            prev_month_label=prev_month.strftime("%b %Y"),
+            next_month=next_month.strftime("%Y-%m"),
+            next_month_label=next_month.strftime("%b %Y"),
+            active_section="faculty",
+            active_page="facultyattendance_monthly_summary",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/facultyattendance/monthly_summary.html", context)
+
+    def mark_view(self, request):
+        if not (self.has_add_permission(request) and self.has_change_permission(request)):
+            raise PermissionDenied
+
+        date_param = request.POST.get("attendance_date") or request.GET.get("date")
+        if date_param:
+            try:
+                target_date = datetime.strptime(date_param, "%Y-%m-%d").date()
+            except ValueError:
+                target_date = timezone.localdate()
+        else:
+            target_date = timezone.localdate()
+
+        teachers = Faculty.objects.order_by("full_name")
+
+        if request.method == "POST":
+            saved_count = 0
+            for teacher in teachers:
+                status = request.POST.get(f"status__{teacher.id}", "").strip()
+                if not status:
+                    # No radio selected for this teacher today — leave
+                    # them unmarked rather than forcing a default; staff
+                    # can come back and fill it in later.
+                    continue
+                remarks = request.POST.get(f"remarks__{teacher.id}", "").strip()
+                classes_raw = request.POST.get(f"classes__{teacher.id}", "").strip()
+                try:
+                    classes_taken = max(int(classes_raw), 0) if classes_raw else 0
+                except ValueError:
+                    classes_taken = 0
+                FacultyAttendance.objects.update_or_create(
+                    teacher=teacher,
+                    attendance_date=target_date,
+                    defaults={"status": status, "remarks": remarks, "classes_taken": classes_taken},
+                )
+                saved_count += 1
+
+            self.message_user(
+                request,
+                f"Attendance was saved for {saved_count} of {teachers.count()} faculty members on "
+                f"{target_date:%d %b %Y}.",
+                level=messages.SUCCESS,
+            )
+            return redirect(f"{reverse('admin:core_facultyattendance_mark')}?date={target_date:%Y-%m-%d}")
+
+        existing = {
+            record.teacher_id: record
+            for record in FacultyAttendance.objects.filter(attendance_date=target_date)
+        }
+        rows = [
+            {"teacher": teacher, "record": existing.get(teacher.id)}
+            for teacher in teachers
+        ]
+
+        prev_date = target_date - timedelta(days=1)
+        next_date = target_date + timedelta(days=1)
+
+        context = dict(
+            self.admin_site.each_context(request),
+            rows=rows,
+            target_date=target_date,
+            prev_date=prev_date.strftime("%Y-%m-%d"),
+            next_date=next_date.strftime("%Y-%m-%d"),
+            today=timezone.localdate().strftime("%Y-%m-%d"),
+            marked_count=len(existing),
+            total_teachers=teachers.count(),
+            active_section="faculty",
+            active_page="facultyattendance_mark",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/facultyattendance/mark.html", context)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if not self.has_delete_permission(request):
+            raise PermissionDenied
+        if request.method == "POST":
+            obj = get_object_or_404(FacultyAttendance, pk=object_id)
+            obj.delete()
+            self.message_user(request, "Attendance record deleted.", level=messages.SUCCESS)
+        return redirect("admin:core_facultyattendance_changelist")
+
+
+@admin.register(Exam)
+class ExamAdmin(admin.ModelAdmin):
+    list_display = (
+        "exam_name",
+        "class_obj",
+        "exam_date",
+    )
+
+    list_filter = (
+        "class_obj",
+        "exam_date",
+    )
+
+    search_fields = (
+        "exam_name",
+    )
+
+    autocomplete_fields = ("class_obj",)
+
+    # ------------------------------------------------------------------
+    # Same pattern as StudentPaymentAdmin: same admin URLs, custom
+    # light-themed templates and views instead of Django's defaults.
+    # Trade-off: ExamResultInline no longer shows on this page — results
+    # are managed from the exam's own detail page instead.
+    # ------------------------------------------------------------------
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        exams = (
+            Exam.objects.select_related("class_obj")
+            .annotate(result_count=Count("examresult"))
+            .order_by("-exam_date")
+        )
+
+        query = request.GET.get("q", "").strip()
+        if query:
+            exams = exams.filter(exam_name__icontains=query)
+
+        active_class_id = request.GET.get("class", "").strip()
+        if active_class_id:
+            exams = exams.filter(class_obj_id=active_class_id)
+
+        total_count = exams.count()
+        paginator = Paginator(exams, 15)
+        page_obj = paginator.get_page(request.GET.get("page"))
+
+        preserved_params = request.GET.copy()
+        preserved_params.pop("page", None)
+        preserved_querystring = preserved_params.urlencode()
+
+        context = dict(
+            self.admin_site.each_context(request),
+            exams=page_obj,
+            page_obj=page_obj,
+            page_range=_pagination_range(page_obj.number, paginator.num_pages),
+            preserved_querystring=preserved_querystring,
+            total_count=total_count,
+            classes=Class.objects.order_by("-academic_year", "class_name"),
+            active_class_id=active_class_id,
+            search_query=query,
+            active_section="academics",
+            active_page="exam_list",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/exam/list.html", context)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<int:exam_id>/recalculate-grades/",
+                self.admin_site.admin_view(self.recalculate_grades_view),
+                name="core_exam_recalculate_grades",
+            ),
+            path(
+                "<path:object_id>/view/",
+                self.admin_site.admin_view(self.view_view),
+                name="core_exam_view",
+            ),
+        ]
+        return custom_urls + urls
+
+    def recalculate_grades_view(self, request, exam_id):
+        """Re-work every grade in this exam from its marks. Fills in the
+        grades on results saved before grading existed, and re-grades
+        everything if the exam's full marks were changed. Overwrites any
+        grade that was typed in by hand, so the page asks first."""
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        exam = get_object_or_404(Exam, pk=exam_id)
+        if request.method == "POST":
+            updated = 0
+            for result in ExamResult.objects.filter(exam=exam):
+                new_grade = grade_for(result.marks, exam.full_marks)[0]
+                if result.grade != new_grade:
+                    result.grade = new_grade
+                    result.save(update_fields=["grade"])
+                    updated += 1
+            self.message_user(
+                request,
+                f"Grades have been recalculated — {updated} result{'s' if updated != 1 else ''} updated.",
+                level=messages.SUCCESS,
+            )
+        return redirect("admin:core_exam_view", exam.pk)
+
+    def add_view(self, request, form_url="", extra_context=None):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        return self._exam_form_view(request, instance=None)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(Exam, pk=object_id)
+        return self._exam_form_view(request, instance=instance)
+
+    def _exam_form_view(self, request, instance):
+        if request.method == "POST":
+            form = ExamForm(request.POST, instance=instance)
+            if form.is_valid():
+                exam = form.save()
+                self.message_user(
+                    request,
+                    f"Exam was {'updated' if instance else 'created'}.",
+                    level=messages.SUCCESS,
+                )
+                return redirect("admin:core_exam_view", exam.pk)
+        else:
+            form = ExamForm(instance=instance)
+
+        context = dict(
+            self.admin_site.each_context(request),
+            form=form,
+            instance=instance,
+            active_section="academics",
+            active_page="exam_edit" if instance else "exam_add",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/exam/form.html", context)
+
+    def view_view(self, request, object_id):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(Exam.objects.select_related("class_obj"), pk=object_id)
+        results = (
+            ExamResult.objects.filter(exam=instance)
+            .select_related("student", "subject")
+            .order_by("student__full_name", "subject__subject_name")
+        )
+        context = dict(
+            self.admin_site.each_context(request),
+            instance=instance,
+            results=results,
+            active_section="academics",
+            active_page="exam_view",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/exam/detail.html", context)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if not self.has_delete_permission(request):
+            raise PermissionDenied
+        if request.method == "POST":
+            obj = get_object_or_404(Exam, pk=object_id)
+            obj.delete()
+            self.message_user(request, "Exam deleted.", level=messages.SUCCESS)
+        return redirect("admin:core_exam_changelist")
+
+
+@admin.register(ExamResult)
+class ExamResultAdmin(admin.ModelAdmin):
+    list_display = (
+        "student",
+        "exam",
+        "subject",
+        "marks",
+        "grade",
+    )
+
+    list_filter = (
+        "exam",
+        "subject",
+        "grade",
+    )
+
+    search_fields = (
+        "student__full_name",
+        "student__student_code",
+    )
+
+    autocomplete_fields = ("student", "exam", "subject")
+
+    # ------------------------------------------------------------------
+    # No custom changelist here — results are always browsed from their
+    # exam's detail page (admin:core_exam_view), not on their own, so
+    # Django's default list page is left as a rarely-used fallback. Add,
+    # change, and delete still get the dashboard-styled treatment and
+    # redirect back to that exam page.
+    # ------------------------------------------------------------------
+    def get_urls(self):
+        # Same pattern as StudentAdmin's bulk-upload/bulk-template pair,
+        # but scoped to one exam at a time via ?exam=<id> — a mark sheet
+        # only makes sense for a single exam's class and subject list.
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "bulk-upload/",
+                self.admin_site.admin_view(self.bulk_upload_view),
+                name="core_examresult_bulk_upload",
+            ),
+            path(
+                "bulk-template/",
+                self.admin_site.admin_view(self.bulk_template_view),
+                name="core_examresult_bulk_template",
+            ),
+        ]
+        return custom_urls + urls
+
+    def add_view(self, request, form_url="", extra_context=None):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        return self._examresult_form_view(request, instance=None)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(ExamResult, pk=object_id)
+        return self._examresult_form_view(request, instance=instance)
+
+    def _examresult_form_view(self, request, instance):
+        # Arriving from a specific exam's "Add Result" link locks that
+        # exam in as a hidden field, same reasoning as StudentPaymentForm's
+        # lock_student — staff shouldn't have to pick it again.
+        if instance is not None:
+            locked_exam = instance.exam
+        else:
+            exam_id = request.GET.get("exam") or request.POST.get("exam")
+            locked_exam = Exam.objects.filter(pk=exam_id).first() if exam_id else None
+
+        if request.method == "POST":
+            form = ExamResultForm(request.POST, instance=instance, lock_exam=locked_exam)
+            if form.is_valid():
+                result = form.save(commit=False)
+                if locked_exam is not None:
+                    result.exam = locked_exam
+                result.save()
+                self.message_user(
+                    request,
+                    f"Result was {'updated' if instance else 'recorded'}.",
+                    level=messages.SUCCESS,
+                )
+                return redirect("admin:core_exam_view", result.exam_id)
+        else:
+            form = ExamResultForm(instance=instance, lock_exam=locked_exam)
+
+        context = dict(
+            self.admin_site.each_context(request),
+            form=form,
+            instance=instance,
+            locked_exam=locked_exam,
+            active_section="academics",
+            active_page="examresult_edit" if instance else "examresult_add",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/examresult/form.html", context)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if not self.has_delete_permission(request):
+            raise PermissionDenied
+        obj = get_object_or_404(ExamResult, pk=object_id)
+        exam_id = obj.exam_id
+        if request.method == "POST":
+            obj.delete()
+            self.message_user(request, "Exam result deleted.", level=messages.SUCCESS)
+        return redirect("admin:core_exam_view", exam_id)
+
+    def bulk_template_view(self, request):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        exam_id = request.GET.get("exam")
+        exam = get_object_or_404(Exam.objects.select_related("class_obj"), pk=exam_id) if exam_id else None
+        if not exam:
+            self.message_user(request, "Please choose an exam first.", level=messages.ERROR)
+            return redirect("admin:core_exam_changelist")
+
+        subjects = list(
+            Subject.objects.filter(class_obj=exam.class_obj).order_by("subject_name")
+        )
+        students = Student.objects.filter(class_obj=exam.class_obj).order_by("full_name")
+
+        headers = BULK_EXAMRESULT_FIXED_HEADERS + [s.subject_name for s in subjects]
+
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = "Results"
+        sheet.append(headers)
+        for student in students:
+            sheet.append([student.student_code, student.full_name] + [None] * len(subjects))
+        for col_idx in range(1, len(headers) + 1):
+            sheet.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = 22
+
+        # A second sheet with the ground rules; the upload only ever reads
+        # the first sheet, so this never gets in the way.
+        info = workbook.create_sheet("Read me")
+        info.column_dimensions["A"].width = 90
+        for line in (
+            f"{exam.exam_name} — {exam.class_obj.class_name}",
+            f"Each subject is marked out of {exam.full_marks:g}.",
+            "Enter each student's marks beneath the subject. Leave a cell empty to skip it.",
+            "Marks higher than the full marks, negative marks, or text entries are rejected and reported after the upload.",
+            "Grades are computed automatically during upload, so do not add a grade column.",
+            "Uploading corrected marks again updates the existing results.",
+        ):
+            info.append([line])
+
+        buffer = BytesIO()
+        workbook.save(buffer)
+        buffer.seek(0)
+        response = HttpResponse(
+            buffer.read(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        safe_name = re.sub(r"[^A-Za-z0-9]+", "_", exam.exam_name).strip("_") or "exam"
+        response["Content-Disposition"] = f'attachment; filename="{safe_name}_results_template.xlsx"'
+        return response
+
+    def bulk_upload_view(self, request):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        exam_id = request.GET.get("exam") or request.POST.get("exam")
+        exam = get_object_or_404(Exam.objects.select_related("class_obj"), pk=exam_id) if exam_id else None
+        if not exam:
+            self.message_user(request, "Please choose an exam first.", level=messages.ERROR)
+            return redirect("admin:core_exam_changelist")
+
+        results = None
+        if request.method == "POST":
+            excel_file = request.FILES.get("excel_file")
+            if not excel_file:
+                self.message_user(request, "Please select a file to upload.", level=messages.ERROR)
+            else:
+                results = self._process_bulk_upload(excel_file, exam)
+
+        context = dict(
+            self.admin_site.each_context(request),
+            exam=exam,
+            results=results,
+            active_section="academics",
+            active_page="examresult_bulk_upload",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/examresult/bulk_upload.html", context)
+
+    def _process_bulk_upload(self, excel_file, exam):
+        """
+        Reads a mark-sheet workbook for one exam: Student ID, Full Name,
+        then one column per subject in the exam's class. Each filled-in
+        mark becomes an ExamResult — update_or_create, not create, so
+        re-uploading a corrected sheet fixes existing marks rather than
+        erroring on the duplicate exam+student+subject.
+
+        Returns a dict with saved_count and errors (list of "Row N: ..."
+        strings, plus any unrecognized subject columns).
+        """
+        try:
+            workbook = openpyxl.load_workbook(excel_file, data_only=True)
+        except Exception:
+            return {"saved_count": 0, "errors": [
+                "That file could not be read. Make sure it is a valid .xlsx file, preferably the downloaded template with the marks entered."
+            ]}
+
+        sheet = workbook.active
+        header_row = [str(c.value).strip() if c.value is not None else "" for c in sheet[1]]
+        if header_row[:2] != BULK_EXAMRESULT_FIXED_HEADERS:
+            return {"saved_count": 0, "errors": [
+                "The column headers differ from the template. Please download the template below and use it unchanged."
+            ]}
+
+        subject_names = [h for h in header_row[2:] if h]
+        subjects_by_name = {
+            s.subject_name.strip().lower(): s
+            for s in Subject.objects.filter(class_obj=exam.class_obj)
+        }
+        resolved_subjects = []
+        unknown_subjects = []
+        for name in header_row[2:]:
+            subj = subjects_by_name.get(name.strip().lower()) if name else None
+            resolved_subjects.append(subj)
+            if name and not subj:
+                unknown_subjects.append(name)
+
+        errors = []
+        if unknown_subjects:
+            errors.append(
+                "Skipped unrecognized subject column(s): "
+                + ", ".join(sorted(set(unknown_subjects)))
+            )
+
+        saved_count = 0
+        seen_students = set()
+        for row_num, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+            if row is None or all(v in (None, "") for v in row):
+                continue  # skip fully blank rows
+
+            student_code = str(row[0]).strip() if len(row) > 0 and row[0] not in (None, "") else ""
+            if not student_code:
+                continue
+            student = Student.objects.filter(
+                student_code__iexact=student_code, class_obj=exam.class_obj
+            ).first()
+            if not student:
+                errors.append(
+                    f"Row {row_num}: no student '{student_code}' found in "
+                    f"{exam.class_obj.class_name}, so the row was skipped."
+                )
+                continue
+
+            if student.pk in seen_students:
+                errors.append(
+                    f"Row {row_num} ({student.full_name}): this student is listed more "
+                    f"than once in the sheet; this row replaces the earlier one."
+                )
+            seen_students.add(student.pk)
+
+            for col_idx, subject in enumerate(resolved_subjects, start=2):
+                if subject is None or col_idx >= len(row):
+                    continue
+                raw_marks = row[col_idx]
+                if raw_marks in (None, ""):
+                    continue
+                try:
+                    marks = Decimal(str(raw_marks).strip())
+                except (InvalidOperation, ValueError):
+                    errors.append(
+                        f"Row {row_num} ({student.full_name}), {subject.subject_name}: "
+                        f"'{raw_marks}' is not a number, so it was skipped."
+                    )
+                    continue
+                if not marks.is_finite():  # 'NaN' / 'Infinity' typed into a cell
+                    errors.append(
+                        f"Row {row_num} ({student.full_name}), {subject.subject_name}: "
+                        f"'{raw_marks}' is not a valid mark, so it was skipped."
+                    )
+                    continue
+                if marks < 0:
+                    errors.append(
+                        f"Row {row_num} ({student.full_name}), {subject.subject_name}: "
+                        f"marks cannot be negative, so it was skipped."
+                    )
+                    continue
+                if marks > exam.full_marks:
+                    errors.append(
+                        f"Row {row_num} ({student.full_name}), {subject.subject_name}: "
+                        f"{marks:g} exceeds the exam's full marks "
+                        f"({exam.full_marks:g}), so it was skipped."
+                    )
+                    continue
+
+                marks = marks.quantize(Decimal("0.01"))
+                ExamResult.objects.update_or_create(
+                    exam=exam, student=student, subject=subject,
+                    defaults={"marks": marks, "grade": grade_for(marks, exam.full_marks)[0]},
+                )
+                saved_count += 1
+
+        return {"saved_count": saved_count, "errors": errors}
+
+
+@admin.register(StudentPayment)
+class StudentPaymentAdmin(admin.ModelAdmin):
+    list_display = (
+        "student",
+        "payment_type",
+        "amount",
+        "payment_date",
+        "payment_month",
+        "receipt_link",
+    )
+
+    list_filter = (
+        "payment_type",
+        "payment_date",
+    )
+
+    date_hierarchy = "payment_date"
+
+    search_fields = (
+        "student__full_name",
+        "student__student_code",
+    )
+
+    autocomplete_fields = ("student",)
+
+    # ------------------------------------------------------------------
+    # Receipt link column on the changelist
+    # ------------------------------------------------------------------
+    def receipt_link(self, obj):
+        url = reverse("admin:core_studentpayment_receipt", args=[obj.pk])
+        return format_html('<a href="{}" target="_blank">View receipt</a>', url)
+    receipt_link.short_description = "Receipt"
+
+    # ------------------------------------------------------------------
+    # Same pattern as StudentAdmin/ClassAdmin: same admin URLs, custom
+    # light-themed templates and views instead of Django's defaults.
+    # ------------------------------------------------------------------
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        payments = StudentPayment.objects.select_related("student").order_by("-payment_date")
+
+        query = request.GET.get("q", "").strip()
+        if query:
+            payments = payments.filter(
+                Q(student__full_name__icontains=query)
+                | Q(student__student_code__icontains=query)
+            )
+
+        active_payment_type = request.GET.get("payment_type", "").strip()
+        if active_payment_type:
+            payments = payments.filter(payment_type=active_payment_type)
+
+        def _parse_iso_date(value):
+            try:
+                return datetime.strptime(value, "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                return None
+
+        date_from = request.GET.get("from", "").strip()
+        parsed_from = _parse_iso_date(date_from) if date_from else None
+        if parsed_from:
+            payments = payments.filter(payment_date__gte=parsed_from)
+
+        date_to = request.GET.get("to", "").strip()
+        parsed_to = _parse_iso_date(date_to) if date_to else None
+        if parsed_to:
+            payments = payments.filter(payment_date__lte=parsed_to)
+
+        total_count = payments.count()
+        total_amount = payments.aggregate(total=Sum("amount"))["total"] or 0
+
+        paginator = Paginator(payments, 10)
+        page_obj = paginator.get_page(request.GET.get("page"))
+
+        preserved_params = request.GET.copy()
+        preserved_params.pop("page", None)
+        preserved_querystring = preserved_params.urlencode()
+
+        context = dict(
+            self.admin_site.each_context(request),
+            payments=page_obj,
+            page_obj=page_obj,
+            page_range=_pagination_range(page_obj.number, paginator.num_pages),
+            preserved_querystring=preserved_querystring,
+            total_count=total_count,
+            total_amount=total_amount,
+            payment_types=StudentPayment._meta.get_field("payment_type").choices,
+            active_payment_type=active_payment_type,
+            search_query=query,
+            date_from=date_from,
+            date_to=date_to,
+            active_section="finance",
+            active_page="studentpayment_list",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/studentpayment/list.html", context)
+
+    def get_urls(self):
+        # Adds a read-only "view" page alongside the existing add/change/
+        # delete URLs, at admin/core/studentpayment/<id>/view/,
+        # reverse()-able as admin:core_studentpayment_view — plus the
+        # monthly fee status report and printable receipt.
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "monthly-status/",
+                self.admin_site.admin_view(self.monthly_status_view),
+                name="core_studentpayment_monthly_status",
+            ),
+            path(
+                "<int:payment_id>/receipt/",
+                self.admin_site.admin_view(self.receipt_view),
+                name="core_studentpayment_receipt",
+            ),
+            path(
+                "<path:object_id>/view/",
+                self.admin_site.admin_view(self.view_view),
+                name="core_studentpayment_view",
+            ),
+        ]
+        return custom_urls + urls
+
+    def add_view(self, request, form_url="", extra_context=None):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        return self._studentpayment_form_view(request, instance=None)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(StudentPayment, pk=object_id)
+        return self._studentpayment_form_view(request, instance=instance)
+
+    def view_view(self, request, object_id):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(
+            StudentPayment.objects.select_related(
+                "student", "student__class_obj", "student__batch"
+            ),
+            pk=object_id,
+        )
+        context = dict(
+            self.admin_site.each_context(request),
+            instance=instance,
+            active_section="finance",
+            active_page="studentpayment_view",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/studentpayment/detail.html", context)
+
+    def _studentpayment_form_view(self, request, instance):
+        # Arriving from a specific student's "Record a payment" link (or
+        # the Monthly Fee Status report) passes ?student=<id> — lock that
+        # student in as a hidden field instead of making staff pick them
+        # again from the dropdown. Editing an existing payment locks it
+        # to that payment's student the same way.
+        if instance is not None:
+            locked_student = instance.student
+        else:
+            student_id = request.GET.get("student") or request.POST.get("student")
+            locked_student = (
+                Student.objects.filter(pk=student_id).first() if student_id else None
+            )
+
+        if request.method == "POST":
+            form = StudentPaymentForm(
+                request.POST, instance=instance, lock_student=locked_student
+            )
+            if form.is_valid():
+                payment = form.save(commit=False)
+                if locked_student is not None:
+                    payment.student = locked_student
+                payment.save()
+                self.message_user(
+                    request,
+                    f"Payment was {'updated' if instance else 'recorded'}.",
+                    level=messages.SUCCESS,
+                )
+                return redirect("admin:core_studentpayment_changelist")
+        else:
+            initial = {}
+            if instance is None:
+                for key in ("payment_type", "payment_month", "payment_date"):
+                    value = request.GET.get(key)
+                    if value:
+                        initial[key] = value
+            form = StudentPaymentForm(
+                instance=instance, initial=initial, lock_student=locked_student
+            )
+
+        context = dict(
+            self.admin_site.each_context(request),
+            form=form,
+            instance=instance,
+            locked_student=locked_student,
+            active_section="finance",
+            active_page="studentpayment_edit" if instance else "studentpayment_add",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/studentpayment/form.html", context)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if not self.has_delete_permission(request):
+            raise PermissionDenied
+        if request.method == "POST":
+            obj = get_object_or_404(StudentPayment, pk=object_id)
+            obj.delete()
+            self.message_user(request, "Payment deleted.", level=messages.SUCCESS)
+        return redirect("admin:core_studentpayment_changelist")
+
+    def monthly_status_view(self, request):
+        """
+        Shows every active student for a given month and whether their
+        Monthly Fee is Paid or Due. Admission Fee and Exam Fee are
+        one-time charges, not recurring, so this report is scoped to
+        Monthly Fee only — that's the fee type "due/paid per month"
+        actually applies to.
+        """
+        month_param = request.GET.get("month")
+        if month_param:
+            try:
+                target_month = datetime.strptime(month_param, "%Y-%m").date().replace(day=1)
+            except ValueError:
+                target_month = timezone.localdate().replace(day=1)
+        else:
+            target_month = timezone.localdate().replace(day=1)
+
+        prev_month = (target_month - timedelta(days=1)).replace(day=1)
+        next_month_probe = target_month.replace(day=28) + timedelta(days=4)
+        next_month = next_month_probe.replace(day=1)
+
+        students = (
+            Student.objects.filter(status="Active")
+            .select_related("class_obj", "batch")
+            .order_by("full_name")
+        )
+
+        paid_qs = (
+            StudentPayment.objects.filter(
+                payment_type="Monthly Fee",
+                payment_month__year=target_month.year,
+                payment_month__month=target_month.month,
+            )
+            .values("student_id")
+            .annotate(total=Sum("amount"))
+        )
+        latest_payment_by_student = {}
+        for p in StudentPayment.objects.filter(
+            payment_type="Monthly Fee",
+            payment_month__year=target_month.year,
+            payment_month__month=target_month.month,
+        ).order_by("payment_date"):
+            latest_payment_by_student[p.student_id] = p
+
+        paid_totals = {p["student_id"]: p["total"] for p in paid_qs}
+
+        rows = []
+        paid_count = 0
+        due_count = 0
+        for student in students:
+            amount_paid = paid_totals.get(student.id)
+            payment_obj = latest_payment_by_student.get(student.id)
+            is_paid = amount_paid is not None
+            if is_paid:
+                paid_count += 1
+            else:
+                due_count += 1
+
+            add_url = (
+                reverse("admin:core_studentpayment_add")
+                + "?"
+                + urlencode({
+                    "student": student.id,
+                    "payment_type": "Monthly Fee",
+                    "payment_month": target_month.isoformat(),
+                    "payment_date": timezone.localdate().isoformat(),
+                })
+            )
+
+            rows.append({
+                "student": student,
+                "is_paid": is_paid,
+                "amount_paid": amount_paid,
+                "receipt_url": (
+                    reverse("admin:core_studentpayment_receipt", args=[payment_obj.pk])
+                    if payment_obj else None
+                ),
+                "record_payment_url": add_url,
+            })
+
+        context = dict(
+            self.admin_site.each_context(request),
+            title="Monthly Fee Status",
+            rows=rows,
+            target_month=target_month,
+            target_month_label=target_month.strftime("%B %Y"),
+            prev_month=prev_month.strftime("%Y-%m"),
+            prev_month_label=prev_month.strftime("%b %Y"),
+            next_month=next_month.strftime("%Y-%m"),
+            next_month_label=next_month.strftime("%b %Y"),
+            paid_count=paid_count,
+            due_count=due_count,
+            total_students=len(rows),
+            active_section="finance",
+            active_page="studentpayment_monthly_status",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/monthly_fee_status.html", context)
+
+    def receipt_view(self, request, payment_id):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        payment = get_object_or_404(
+            StudentPayment.objects.select_related(
+                "student", "student__class_obj", "student__batch"
+            ),
+            pk=payment_id,
+        )
+        context = {
+            "payment": payment,
+            "academy_name": "Update IT",
+            "generated_at": timezone.localtime(),
+        }
+        return TemplateResponse(request, "admin/core/payment_receipt.html", context)
+
+
+@admin.register(StudentPaymentReceipt)
+class StudentPaymentReceiptAdmin(admin.ModelAdmin):
+    """
+    The new way to record student payments — one receipt, any number of
+    line items (several months at once, an admission fee plus the first
+    month's fee, etc.), each with its own optional discount/waiver.
+
+    The old StudentPayment/StudentPaymentAdmin above is untouched and
+    still reachable directly for historical records, but isn't linked
+    from the sidebar anymore — this replaces it going forward.
+    """
+
+    search_fields = ("student__full_name", "student__student_code", "receipt_number")
+
+    ITEM_TYPE_CHOICES = [
+        ("Admission Fee", "Admission Fee"),
+        ("Monthly Fee", "Monthly Fee"),
+        ("Exam Fee", "Exam Fee"),
+        ("Other", "Other"),
+    ]
+
+    # ------------------------------------------------------------------
+    def _filtered_receipts(self, request):
+        receipts = StudentPaymentReceipt.objects.select_related("student").order_by(
+            "-payment_date", "-id"
+        )
+
+        query = request.GET.get("q", "").strip()
+        if query:
+            receipts = receipts.filter(
+                Q(student__full_name__icontains=query)
+                | Q(student__student_code__icontains=query)
+                | Q(receipt_number__icontains=query)
+            )
+
+        active_method = request.GET.get("method", "").strip()
+        if active_method:
+            receipts = receipts.filter(payment_method=active_method)
+
+        def _parse_iso_date(value):
+            try:
+                return datetime.strptime(value, "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                return None
+
+        date_from = request.GET.get("from", "").strip()
+        parsed_from = _parse_iso_date(date_from) if date_from else None
+        if parsed_from:
+            receipts = receipts.filter(payment_date__gte=parsed_from)
+
+        date_to = request.GET.get("to", "").strip()
+        parsed_to = _parse_iso_date(date_to) if date_to else None
+        if parsed_to:
+            receipts = receipts.filter(payment_date__lte=parsed_to)
+
+        return receipts, query, active_method, date_from, date_to
+
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        receipts, query, active_method, date_from, date_to = self._filtered_receipts(request)
+
+        totals = receipts.aggregate(
+            total_collected=Sum("total_amount"),
+            total_discount=Sum("total_discount"),
+        )
+        today = timezone.localdate()
+        this_month_total = StudentPaymentReceipt.objects.filter(
+            payment_date__year=today.year, payment_date__month=today.month
+        ).aggregate(total=Sum("total_amount"))["total"] or 0
+
+        paginator = Paginator(receipts, 15)
+        page_obj = paginator.get_page(request.GET.get("page"))
+
+        preserved_params = request.GET.copy()
+        preserved_params.pop("page", None)
+        preserved_querystring = preserved_params.urlencode()
+
+        context = dict(
+            self.admin_site.each_context(request),
+            receipts=page_obj,
+            page_obj=page_obj,
+            page_range=_pagination_range(page_obj.number, paginator.num_pages),
+            preserved_querystring=preserved_querystring,
+            cards={
+                "receipt_count": receipts.count(),
+                "total_collected": totals["total_collected"] or 0,
+                "total_discount": totals["total_discount"] or 0,
+                "this_month_total": this_month_total,
+            },
+            method_choices=StudentPaymentReceipt.PAYMENT_METHODS,
+            active_method=active_method,
+            search_query=query,
+            date_from=date_from,
+            date_to=date_to,
+            active_section="finance",
+            active_page="studentpaymentreceipt_list",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/studentpaymentreceipt/list.html", context)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "monthly-status/",
+                self.admin_site.admin_view(self.monthly_status_view),
+                name="core_studentpaymentreceipt_monthly_status",
+            ),
+            path(
+                "<int:receipt_id>/receipt/",
+                self.admin_site.admin_view(self.receipt_view),
+                name="core_studentpaymentreceipt_receipt",
+            ),
+            path(
+                "<path:object_id>/view/",
+                self.admin_site.admin_view(self.view_view),
+                name="core_studentpaymentreceipt_view",
+            ),
+        ]
+        return custom_urls + urls
+
+    def add_view(self, request, form_url="", extra_context=None):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        return self._paymentreceipt_form_view(request, instance=None)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(StudentPaymentReceipt, pk=object_id)
+        return self._paymentreceipt_form_view(request, instance=instance)
+
+    def view_view(self, request, object_id):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(
+            StudentPaymentReceipt.objects.select_related("student"), pk=object_id
+        )
+        context = dict(
+            self.admin_site.each_context(request),
+            instance=instance,
+            active_section="finance",
+            active_page="studentpaymentreceipt_view",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/studentpaymentreceipt/detail.html", context)
+
+    def _parse_items_from_post(self, request):
+        """Rows are submitted as parallel arrays (item_type[], item_month[],
+        item_amount[]) since the person can add any number of rows in the
+        browser — there's no fixed set of form fields to declare ahead of
+        time, same reasoning as GallerySubsection's per-image fields.
+
+        There's no per-item discount — just one discount on the whole
+        receipt, entered on the form itself (StudentPaymentReceiptForm's
+        total_discount field) and applied in _paymentreceipt_form_view."""
+        types = request.POST.getlist("item_type[]")
+        months = request.POST.getlist("item_month[]")
+        amounts = request.POST.getlist("item_amount[]")
+
+        items = []
+        errors = []
+        total_amount = Decimal("0")
+
+        for row_num, (item_type, month_raw, amount_raw) in enumerate(
+            zip(types, months, amounts), start=1
+        ):
+            item_type = (item_type or "").strip()
+            if not item_type:
+                continue
+
+            try:
+                amount = Decimal(amount_raw or "0")
+            except InvalidOperation:
+                amount = Decimal("0")
+            amount = max(round(amount), Decimal("0"))
+
+            if amount <= 0:
+                errors.append(f"Row {row_num}: please enter an amount above ৳0.")
+                continue
+
+            month_iso = None
+            label = item_type
+            if item_type == "Monthly Fee":
+                if not month_raw:
+                    errors.append(f"Row {row_num}: please choose the month this fee is for.")
+                    continue
+                try:
+                    month_date = datetime.strptime(month_raw, "%Y-%m").date()
+                except ValueError:
+                    errors.append(f"Row {row_num}: that month appears to be invalid.")
+                    continue
+                month_iso = month_date.isoformat()
+                label = month_date.strftime("%B %Y")
+
+            items.append({
+                "payment_type": item_type,
+                "payment_month": month_iso,
+                "label": label,
+                "amount": float(amount),
+            })
+            total_amount += amount
+
+        if not items and not errors:
+            errors.append("Please add at least one item to this receipt.")
+
+        return items, total_amount, errors
+
+    def _check_duplicate_months(self, student, items, exclude_pk=None):
+        """A student paying Jan+Feb+Mar in one receipt is fine; paying for
+        the same month twice across two different receipts is almost
+        always a mistake — catch it with a clear message instead of
+        silently double-charging (or double-crediting) that month."""
+        new_months = {
+            item["payment_month"] for item in items
+            if item.get("payment_type") == "Monthly Fee" and item.get("payment_month")
+        }
+        if not new_months:
+            return None
+
+        other_receipts = StudentPaymentReceipt.objects.filter(student=student)
+        if exclude_pk:
+            other_receipts = other_receipts.exclude(pk=exclude_pk)
+
+        for receipt in other_receipts:
+            for item in (receipt.items or []):
+                if item.get("payment_type") == "Monthly Fee" and item.get("payment_month") in new_months:
+                    month_label = item.get("label", item["payment_month"])
+                    return (
+                        f"{student.full_name} has already paid the Monthly Fee for "
+                        f"{month_label} on receipt {receipt.receipt_number or receipt.pk}."
+                    )
+        return None
+
+    def _paymentreceipt_form_view(self, request, instance):
+        if instance is not None:
+            locked_student = instance.student
+        else:
+            student_id = request.GET.get("student") or request.POST.get("student")
+            locked_student = (
+                Student.objects.filter(pk=student_id).first() if student_id else None
+            )
+
+        form_errors = []
+
+        if request.method == "POST":
+            form = StudentPaymentReceiptForm(
+                request.POST, instance=instance, lock_student=locked_student
+            )
+            items, total_amount, item_errors = self._parse_items_from_post(request)
+            form_errors.extend(item_errors)
+
+            if form.is_valid() and not form_errors:
+                receipt = form.save(commit=False)
+                if locked_student is not None:
+                    receipt.student = locked_student
+
+                if receipt.total_discount > total_amount:
+                    form_errors.append(
+                        f"The discount (৳{receipt.total_discount}) cannot be greater than "
+                        f"the total amount (৳{total_amount})."
+                    )
+
+                dup_error = self._check_duplicate_months(
+                    receipt.student, items, exclude_pk=instance.pk if instance else None
+                )
+                if dup_error:
+                    form_errors.append(dup_error)
+
+                if not form_errors:
+                    if not instance:
+                        receipt.receipt_number = _generate_payment_receipt_number()
+                    receipt.items = items
+                    receipt.total_amount = total_amount
+                    receipt.save()
+                    self.message_user(
+                        request,
+                        f"Receipt was {'updated' if instance else 'recorded'}.",
+                        level=messages.SUCCESS,
+                    )
+                    return redirect("admin:core_studentpaymentreceipt_changelist")
+
+            # Re-render with whatever was typed, including the in-progress
+            # item rows, so a validation error doesn't wipe the form.
+            existing_items = items
+        else:
+            initial = {}
+            if instance is None:
+                payment_date = request.GET.get("payment_date")
+                if payment_date:
+                    initial["payment_date"] = payment_date
+            form = StudentPaymentReceiptForm(
+                instance=instance, initial=initial, lock_student=locked_student
+            )
+            existing_items = instance.items if instance else []
+
+        for error in form_errors:
+            messages.error(request, error)
+
+        context = dict(
+            self.admin_site.each_context(request),
+            form=form,
+            instance=instance,
+            locked_student=locked_student,
+            existing_items=existing_items,
+            item_type_choices=self.ITEM_TYPE_CHOICES,
+            active_section="finance",
+            active_page="studentpaymentreceipt_edit" if instance else "studentpaymentreceipt_add",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/studentpaymentreceipt/form.html", context)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if not self.has_delete_permission(request):
+            raise PermissionDenied
+        if request.method == "POST":
+            obj = get_object_or_404(StudentPaymentReceipt, pk=object_id)
+            obj.delete()
+            self.message_user(request, "Receipt deleted.", level=messages.SUCCESS)
+        return redirect("admin:core_studentpaymentreceipt_changelist")
+
+    def receipt_view(self, request, receipt_id):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        receipt = get_object_or_404(
+            StudentPaymentReceipt.objects.select_related(
+                "student", "student__class_obj", "student__batch"
+            ),
+            pk=receipt_id,
+        )
+        context = {
+            "receipt": receipt,
+            "academy_name": "Update IT",
+            "generated_at": timezone.localtime(),
+        }
+        return TemplateResponse(request, "admin/core/student_payment_receipt.html", context)
+
+    def monthly_status_view(self, request):
+        """Same idea as the old StudentPayment version, rewritten to scan
+        each receipt's items list for a Monthly Fee line covering the
+        target month, since that's no longer a top-level DB column."""
+        month_param = request.GET.get("month")
+        if month_param:
+            try:
+                target_month = datetime.strptime(month_param, "%Y-%m").date().replace(day=1)
+            except ValueError:
+                target_month = timezone.localdate().replace(day=1)
+        else:
+            target_month = timezone.localdate().replace(day=1)
+
+        prev_month = (target_month - timedelta(days=1)).replace(day=1)
+        next_month_probe = target_month.replace(day=28) + timedelta(days=4)
+        next_month = next_month_probe.replace(day=1)
+
+        students = (
+            Student.objects.filter(status="Active")
+            .select_related("class_obj", "batch")
+            .order_by("full_name")
+        )
+
+        paid_info = {}
+        receipts = StudentPaymentReceipt.objects.filter(
+            student__in=students
+        ).only("id", "student_id", "items", "receipt_number")
+        for receipt in receipts:
+            for item in (receipt.items or []):
+                if item.get("payment_type") != "Monthly Fee" or not item.get("payment_month"):
+                    continue
+                try:
+                    item_month = datetime.strptime(item["payment_month"], "%Y-%m-%d").date()
+                except (ValueError, TypeError):
+                    continue
+                if item_month.year == target_month.year and item_month.month == target_month.month:
+                    paid_info[receipt.student_id] = {
+                        "net": item.get("amount", item.get("net", 0)),
+                        "receipt_pk": receipt.pk,
+                    }
+
+        rows = []
+        paid_count = 0
+        due_count = 0
+        for student in students:
+            info = paid_info.get(student.id)
+            is_paid = info is not None
+            if is_paid:
+                paid_count += 1
+            else:
+                due_count += 1
+
+            add_url = (
+                reverse("admin:core_studentpaymentreceipt_add")
+                + "?"
+                + urlencode({
+                    "student": student.id,
+                    "payment_date": timezone.localdate().isoformat(),
+                })
+            )
+
+            rows.append({
+                "student": student,
+                "is_paid": is_paid,
+                "amount_paid": info["net"] if info else None,
+                "receipt_url": (
+                    reverse("admin:core_studentpaymentreceipt_receipt", args=[info["receipt_pk"]])
+                    if info else None
+                ),
+                "record_payment_url": add_url,
+            })
+
+        context = dict(
+            self.admin_site.each_context(request),
+            title="Monthly Fee Status",
+            rows=rows,
+            target_month=target_month,
+            target_month_label=target_month.strftime("%B %Y"),
+            prev_month=prev_month.strftime("%Y-%m"),
+            prev_month_label=prev_month.strftime("%b %Y"),
+            next_month=next_month.strftime("%Y-%m"),
+            next_month_label=next_month.strftime("%b %Y"),
+            paid_count=paid_count,
+            due_count=due_count,
+            total_students=len(rows),
+            active_section="finance",
+            active_page="studentpaymentreceipt_monthly_status",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/monthly_fee_status.html", context)
+
+
+@admin.register(TeacherSalary)
+class TeacherSalaryAdmin(admin.ModelAdmin):
+    list_display = (
+        "receipt_number",
+        "teacher",
+        "salary_month",
+        "classes_taken",
+        "net_salary",
+        "paid_amount",
+        "due_amount",
+        "payment_method",
+        "status",
+    )
+
+    list_filter = (
+        "status",
+        "payment_method",
+        "salary_month",
+    )
+
+    date_hierarchy = "salary_month"
+
+    search_fields = (
+        "teacher__full_name",
+        "receipt_number",
+    )
+
+    autocomplete_fields = ("teacher",)
+
+    # ------------------------------------------------------------------
+    # Shared filtering — used by the changelist, the dashboard cards,
+    # and the Excel export, so all three always agree with each other.
+    # ------------------------------------------------------------------
+    def _filtered_salaries(self, request):
+        salaries = TeacherSalary.objects.select_related("teacher").order_by("-salary_month", "-id")
+
+        query = request.GET.get("q", "").strip()
+        if query:
+            salaries = salaries.filter(
+                Q(teacher__full_name__icontains=query) | Q(receipt_number__icontains=query)
+            )
+
+        active_status = request.GET.get("status", "").strip()
+        if active_status:
+            salaries = salaries.filter(status=active_status)
+
+        active_method = request.GET.get("method", "").strip()
+        if active_method:
+            salaries = salaries.filter(payment_method=active_method)
+
+        month_param = request.GET.get("month", "").strip()
+        if month_param:
+            try:
+                month_date = datetime.strptime(month_param, "%Y-%m").date()
+                salaries = salaries.filter(
+                    salary_month__year=month_date.year, salary_month__month=month_date.month
+                )
+            except ValueError:
+                month_param = ""
+
+        return salaries, query, active_status, active_method, month_param
+
+    def _dashboard_cards(self, salaries):
+        """One aggregate query for the money totals, one count query for
+        teacher headcount — no N+1s regardless of how many rows match."""
+        totals = salaries.aggregate(
+            total_salary=Sum("net_salary"),
+            paid_amount=Sum("paid_amount"),
+            due_amount=Sum("due_amount"),
+            paid_count=Count("id", filter=Q(status="Paid")),
+            pending_count=Count("id", filter=Q(status__in=("Pending", "Partial"))),
+        )
+        return {
+            "total_teachers": Faculty.objects.count(),
+            "paid_count": totals["paid_count"] or 0,
+            "pending_count": totals["pending_count"] or 0,
+            "total_salary": totals["total_salary"] or 0,
+            "paid_amount": totals["paid_amount"] or 0,
+            "due_amount": totals["due_amount"] or 0,
+        }
+
+    # ------------------------------------------------------------------
+    # Same pattern as StudentPaymentAdmin: same admin URLs, custom
+    # light-themed templates and views instead of Django's defaults.
+    # ------------------------------------------------------------------
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        salaries, query, active_status, active_method, month_param = self._filtered_salaries(request)
+        cards = self._dashboard_cards(salaries)
+
+        paginator = Paginator(salaries, 15)
+        page_obj = paginator.get_page(request.GET.get("page"))
+
+        preserved_params = request.GET.copy()
+        preserved_params.pop("page", None)
+        preserved_querystring = preserved_params.urlencode()
+
+        context = dict(
+            self.admin_site.each_context(request),
+            salaries=page_obj,
+            page_obj=page_obj,
+            page_range=_pagination_range(page_obj.number, paginator.num_pages),
+            preserved_querystring=preserved_querystring,
+            cards=cards,
+            status_choices=TeacherSalary._meta.get_field("status").choices,
+            method_choices=TeacherSalary.PAYMENT_METHODS,
+            active_status=active_status,
+            active_method=active_method,
+            month_param=month_param,
+            search_query=query,
+            active_section="finance",
+            active_page="teachersalary_list",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/teachersalary/list.html", context)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "monthly-status/",
+                self.admin_site.admin_view(self.salary_status_view),
+                name="core_teachersalary_monthly_status",
+            ),
+            path(
+                "export/",
+                self.admin_site.admin_view(self.export_view),
+                name="core_teachersalary_export",
+            ),
+            path(
+                "<int:salary_id>/receipt/",
+                self.admin_site.admin_view(self.receipt_view),
+                name="core_teachersalary_receipt",
+            ),
+            path(
+                "<int:salary_id>/slip/",
+                self.admin_site.admin_view(self.slip_view),
+                name="core_teachersalary_slip",
+            ),
+            path(
+                "<path:object_id>/view/",
+                self.admin_site.admin_view(self.view_view),
+                name="core_teachersalary_view",
+            ),
+        ]
+        return custom_urls + urls
+
+    def add_view(self, request, form_url="", extra_context=None):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        return self._teachersalary_form_view(request, instance=None)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(TeacherSalary, pk=object_id)
+        return self._teachersalary_form_view(request, instance=instance)
+
+    def view_view(self, request, object_id):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(
+            TeacherSalary.objects.select_related("teacher"), pk=object_id
+        )
+        context = dict(
+            self.admin_site.each_context(request),
+            instance=instance,
+            active_section="finance",
+            active_page="teachersalary_view",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/teachersalary/detail.html", context)
+
+    def _teachersalary_form_view(self, request, instance):
+        # Arriving from a specific faculty member's "Record Salary" link
+        # (or the Monthly Salary Status report) passes ?teacher=<id> —
+        # lock that teacher in as a hidden field, same reasoning as
+        # StudentPaymentForm's lock_student. Editing an existing record
+        # locks it to that record's teacher the same way.
+        if instance is not None:
+            locked_teacher = instance.teacher
+        else:
+            teacher_id = request.GET.get("teacher") or request.POST.get("teacher")
+            locked_teacher = (
+                Faculty.objects.filter(pk=teacher_id).first() if teacher_id else None
+            )
+
+        if request.method == "POST":
+            form = TeacherSalaryForm(
+                request.POST, instance=instance, lock_teacher=locked_teacher
+            )
+            if form.is_valid():
+                salary = form.save(commit=False)
+                if locked_teacher is not None:
+                    salary.teacher = locked_teacher
+                if not instance:
+                    # Only generate a receipt number for brand-new
+                    # records — never regenerate one on edit.
+                    salary.receipt_number = _generate_receipt_number()
+                salary.save()
+                self.message_user(
+                    request,
+                    f"Salary record was {'updated' if instance else 'saved'}.",
+                    level=messages.SUCCESS,
+                )
+                return redirect("admin:core_teachersalary_changelist")
+        else:
+            initial = {}
+            if instance is None:
+                salary_month = request.GET.get("salary_month")
+                if salary_month:
+                    initial["salary_month"] = salary_month
+                classes_param = request.GET.get("classes")
+                if classes_param:
+                    try:
+                        initial["classes_taken"] = max(int(classes_param), 0)
+                    except ValueError:
+                        pass
+            form = TeacherSalaryForm(
+                instance=instance, initial=initial, lock_teacher=locked_teacher
+            )
+
+        context = dict(
+            self.admin_site.each_context(request),
+            form=form,
+            instance=instance,
+            locked_teacher=locked_teacher,
+            active_section="finance",
+            active_page="teachersalary_edit" if instance else "teachersalary_add",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/teachersalary/form.html", context)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if not self.has_delete_permission(request):
+            raise PermissionDenied
+        if request.method == "POST":
+            obj = get_object_or_404(TeacherSalary, pk=object_id)
+            obj.delete()
+            self.message_user(request, "Salary record deleted.", level=messages.SUCCESS)
+        return redirect("admin:core_teachersalary_changelist")
+
+    def salary_status_view(self, request):
+        """
+        Shows every faculty member for a given month, and whether their
+        fixed ৳15,000 salary is Paid, Pending (a record exists but hasn't
+        been marked paid), or hasn't been recorded at all yet.
+        """
+        month_param = request.GET.get("month")
+        if month_param:
+            try:
+                target_month = datetime.strptime(month_param, "%Y-%m").date().replace(day=1)
+            except ValueError:
+                target_month = timezone.localdate().replace(day=1)
+        else:
+            target_month = timezone.localdate().replace(day=1)
+
+        prev_month = (target_month - timedelta(days=1)).replace(day=1)
+        next_month_probe = target_month.replace(day=28) + timedelta(days=4)
+        next_month = next_month_probe.replace(day=1)
+
+        teachers = Faculty.objects.all().order_by("full_name")
+
+        month_salaries = TeacherSalary.objects.filter(
+            salary_month__year=target_month.year,
+            salary_month__month=target_month.month,
+        )
+        salaries_by_teacher = {s.teacher_id: s for s in month_salaries}
+        cards = self._dashboard_cards(month_salaries)
+
+        rows = []
+        paid_count = 0
+        pending_count = 0
+        not_recorded_count = 0
+        for teacher in teachers:
+            salary = salaries_by_teacher.get(teacher.id)
+            if salary is None:
+                row_status = "not_recorded"
+                not_recorded_count += 1
+                action_url = (
+                    reverse("admin:core_teachersalary_add")
+                    + "?"
+                    + urlencode({
+                        "teacher": teacher.id,
+                        "salary_month": target_month.strftime("%Y-%m"),
+                    })
+                )
+            elif salary.status == "Paid":
+                row_status = "paid"
+                paid_count += 1
+                action_url = reverse("admin:core_teachersalary_change", args=[salary.pk])
+            else:
+                row_status = "pending"
+                pending_count += 1
+                action_url = reverse("admin:core_teachersalary_change", args=[salary.pk])
+
+            rows.append({
+                "teacher": teacher,
+                "salary": salary,
+                "status": row_status,
+                "action_url": action_url,
+                "receipt_url": (
+                    reverse("admin:core_teachersalary_receipt", args=[salary.pk])
+                    if salary and salary.status == "Paid" else None
+                ),
+            })
+
+        context = dict(
+            self.admin_site.each_context(request),
+            title="Monthly Salary Status",
+            rows=rows,
+            cards=cards,
+            target_month=target_month,
+            target_month_label=target_month.strftime("%B %Y"),
+            prev_month=prev_month.strftime("%Y-%m"),
+            prev_month_label=prev_month.strftime("%b %Y"),
+            next_month=next_month.strftime("%Y-%m"),
+            next_month_label=next_month.strftime("%b %Y"),
+            paid_count=paid_count,
+            pending_count=pending_count,
+            not_recorded_count=not_recorded_count,
+            total_teachers=len(rows),
+            fixed_salary_amount=15000,
+            active_section="finance",
+            active_page="teachersalary_monthly_status",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/monthly_salary_status.html", context)
+
+    def receipt_view(self, request, salary_id):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        salary = get_object_or_404(
+            TeacherSalary.objects.select_related("teacher"), pk=salary_id
+        )
+        context = {
+            "salary": salary,
+            "academy_name": "Update IT",
+            "generated_at": timezone.localtime(),
+        }
+        return TemplateResponse(request, "admin/core/salary_receipt.html", context)
+
+    def export_view(self, request):
+        """'Export Salary Report' — an XLSX of whatever's currently
+        filtered on the changelist (status/method/month/search)."""
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        salaries, _, _, _, month_param = self._filtered_salaries(request)
+
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = "Salary Report"
+        headers = [
+            "Teacher", "Month", "Classes Taken", "Rate per Class",
+            "Class-Based Pay", "Bonus", "Net Salary", "Paid Amount",
+            "Due Amount", "Payment Method", "Status",
+        ]
+        sheet.append(headers)
+        for col_idx in range(1, len(headers) + 1):
+            sheet.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = 20
+
+        for s in salaries:
+            sheet.append([
+                s.teacher.full_name,
+                s.salary_month.strftime("%B %Y"),
+                s.classes_taken,
+                float(s.rate_per_class),
+                float(s.class_based_pay),
+                float(s.bonus),
+                float(s.net_salary),
+                float(s.paid_amount),
+                float(s.due_amount),
+                s.get_payment_method_display(),
+                s.get_status_display(),
+            ])
+
+        if month_param:
+            filename_suffix = month_param.replace("-", "_")
+        else:
+            filename_suffix = timezone.localdate().strftime("%Y_%m")
+
+        response = HttpResponse(
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        response["Content-Disposition"] = f'attachment; filename="salary_report_{filename_suffix}.xlsx"'
+        workbook.save(response)
+        return response
+
+    def slip_view(self, request, salary_id):
+        """'Generate Salary Slip' — a downloadable PDF via ReportLab."""
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        salary = get_object_or_404(
+            TeacherSalary.objects.select_related("teacher"), pk=salary_id
+        )
+
+        import importlib
+        import urllib.request
+        import urllib.error
+
+        try:
+            colors = importlib.import_module("reportlab.lib.colors")
+            pagesizes = importlib.import_module("reportlab.lib.pagesizes")
+            units = importlib.import_module("reportlab.lib.units")
+            platypus = importlib.import_module("reportlab.platypus")
+            styles_module = importlib.import_module("reportlab.lib.styles")
+            enums = importlib.import_module("reportlab.lib.enums")
+            A4 = pagesizes.A4
+            mm = units.mm
+            SimpleDocTemplate = platypus.SimpleDocTemplate
+            Table = platypus.Table
+            TableStyle = platypus.TableStyle
+            Paragraph = platypus.Paragraph
+            Spacer = platypus.Spacer
+            Image = platypus.Image
+            getSampleStyleSheet = styles_module.getSampleStyleSheet
+            ParagraphStyle = styles_module.ParagraphStyle
+            TA_CENTER = enums.TA_CENTER
+            TA_RIGHT = enums.TA_RIGHT
+        except ModuleNotFoundError:
+            return HttpResponse(
+                "ReportLab is missing from this environment. Install reportlab to be able to create salary slips.",
+                status=503,
+            )
+
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer, pagesize=A4,
+            topMargin=22 * mm, bottomMargin=22 * mm,
+            leftMargin=20 * mm, rightMargin=20 * mm,
+        )
+        brand = colors.HexColor("#830000")
+        muted = colors.HexColor("#6B7280")
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            "SlipTitle", parent=styles["Heading1"], fontSize=18, textColor=brand, spaceAfter=2,
+        )
+        sub_style = ParagraphStyle(
+            "SlipSub", parent=styles["Normal"], fontSize=9, textColor=muted,
+        )
+        section_style = ParagraphStyle(
+            "SlipSection", parent=styles["Heading3"], fontSize=11, textColor=brand,
+            spaceBefore=14, spaceAfter=6,
+        )
+        right_style = ParagraphStyle("SlipRight", parent=styles["Normal"], alignment=TA_RIGHT)
+
+        title_block = [
+            Paragraph("Update IT", title_style),
+            Paragraph("Salary Slip", sub_style),
+        ]
+
+        logo_img = None
+        if settings.ACADEMY_LOGO_URL:
+            try:
+                with urllib.request.urlopen(settings.ACADEMY_LOGO_URL, timeout=5) as resp:
+                    logo_bytes = BytesIO(resp.read())
+                logo_img = Image(logo_bytes, width=15 * mm, height=15 * mm)
+            except (urllib.error.URLError, OSError, ValueError):
+                # Slow/unreachable/broken URL — the slip should still
+                # generate, just without the logo, rather than 500ing.
+                logo_img = None
+
+        if logo_img is not None:
+            header_table = Table(
+                [[logo_img, title_block]],
+                colWidths=[20 * mm, 135 * mm],
+            )
+            header_table.setStyle(TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ]))
+            elements = [header_table, Spacer(1, 14)]
+        else:
+            # ACADEMY_LOGO_URL isn't set yet, or the fetch failed — fall
+            # back to a text-only header rather than failing.
+            elements = title_block + [Spacer(1, 14)]
+
+        meta_rows = [
+            ["Receipt Number", salary.receipt_number or "—"],
+            ["Teacher", salary.teacher.full_name],
+            ["Salary Month", salary.salary_month.strftime("%B %Y")],
+            ["Payment Method", salary.get_payment_method_display()],
+            ["Transaction ID", salary.transaction_id or "—"],
+            ["Payment Date", salary.payment_date.strftime("%d %b %Y") if salary.payment_date else "—"],
+            ["Status", salary.get_status_display()],
+        ]
+        meta_table = Table(meta_rows, colWidths=[60 * mm, 95 * mm])
+        meta_table.setStyle(TableStyle([
+            ("FONTSIZE", (0, 0), (-1, -1), 9.5),
+            ("TEXTCOLOR", (0, 0), (0, -1), muted),
+            ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.HexColor("#E5E7EB")),
+        ]))
+        elements.append(meta_table)
+        elements.append(Paragraph("Salary Breakdown", section_style))
+
+        breakdown_rows = [
+            ["Item", "Amount (৳)"],
+            ["Classes Taken", f"{salary.classes_taken}"],
+            ["Rate per Class", f"{salary.rate_per_class:,.0f}"],
+            ["Class-Based Pay", f"{salary.class_based_pay:,.0f}"],
+            ["Bonus", f"{salary.bonus:,.0f}"],
+            ["Net Salary", f"{salary.net_salary:,.0f}"],
+            ["Paid Amount", f"{salary.paid_amount:,.0f}"],
+            ["Due Amount", f"{salary.due_amount:,.0f}"],
+        ]
+        breakdown_table = Table(breakdown_rows, colWidths=[95 * mm, 60 * mm])
+        breakdown_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), brand),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTNAME", (0, -3), (-1, -3), "Helvetica-Bold"),
+            ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9.5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E5E7EB")),
+            ("LINEABOVE", (0, -3), (-1, -3), 1, brand),
+        ]))
+        elements.append(breakdown_table)
+        elements.append(Spacer(1, 24))
+        elements.append(Paragraph(
+            "This salary slip was generated by a computer and needs no signature.",
+            ParagraphStyle("Footer", parent=styles["Normal"], fontSize=8, textColor=muted, alignment=TA_CENTER),
+        ))
+
+        doc.build(elements)
+        buffer.seek(0)
+
+        response = HttpResponse(buffer.getvalue(), content_type="application/pdf")
+        filename = f"salary-slip-{salary.receipt_number or salary.pk}.pdf"
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
+
+@admin.register(Achievement)
+class AchievementAdmin(admin.ModelAdmin):
+    search_fields = ("title", "description")
+
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        achievements = Achievement.objects.all().order_by("-achievement_date", "-created_at")
+        context = dict(
+            self.admin_site.each_context(request),
+            achievements=achievements,
+            active_section="content",
+            active_page="achievement_list",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/achievement/list.html", context)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<path:object_id>/view/",
+                self.admin_site.admin_view(self.view_view),
+                name="core_achievement_view",
+            ),
+        ]
+        return custom_urls + urls
+
+    def add_view(self, request, form_url="", extra_context=None):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        return self._achievement_form_view(request, instance=None)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(Achievement, pk=object_id)
+        return self._achievement_form_view(request, instance=instance)
+
+    def view_view(self, request, object_id):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(Achievement, pk=object_id)
+        context = dict(
+            self.admin_site.each_context(request),
+            instance=instance,
+            active_section="content",
+            active_page="achievement_view",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/achievement/detail.html", context)
+
+    def _achievement_form_view(self, request, instance):
+        if request.method == "POST":
+            form = AchievementForm(request.POST, request.FILES, instance=instance)
+            if form.is_valid():
+                form.save()
+                self.message_user(
+                    request,
+                    f"Achievement was {'updated' if instance else 'added'}.",
+                    level=messages.SUCCESS,
+                )
+                return redirect("admin:core_achievement_changelist")
+        else:
+            form = AchievementForm(instance=instance)
+        context = dict(
+            self.admin_site.each_context(request),
+            form=form,
+            instance=instance,
+            active_section="content",
+            active_page="achievement_edit" if instance else "achievement_add",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/achievement/form.html", context)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if not self.has_delete_permission(request):
+            raise PermissionDenied
+        if request.method == "POST":
+            obj = get_object_or_404(Achievement, pk=object_id)
+            obj.delete()
+            self.message_user(request, "Achievement deleted.", level=messages.SUCCESS)
+        return redirect("admin:core_achievement_changelist")
+
+
+@admin.register(Gallery)
+class GalleryAdmin(admin.ModelAdmin):
+    search_fields = ("title", "description", "category")
+
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        items = Gallery.objects.all().order_by("-created_at")
+        context = dict(
+            self.admin_site.each_context(request),
+            items=items,
+            active_section="content",
+            active_page="gallery_list",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/gallery/list.html", context)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<path:object_id>/view/",
+                self.admin_site.admin_view(self.view_view),
+                name="core_gallery_view",
+            ),
+        ]
+        return custom_urls + urls
+
+    def add_view(self, request, form_url="", extra_context=None):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        return self._gallery_form_view(request, instance=None)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(Gallery, pk=object_id)
+        return self._gallery_form_view(request, instance=instance)
+
+    def view_view(self, request, object_id):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(Gallery, pk=object_id)
+        context = dict(
+            self.admin_site.each_context(request),
+            instance=instance,
+            active_section="content",
+            active_page="gallery_view",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/gallery/detail.html", context)
+
+    def _gallery_form_view(self, request, instance):
+        if request.method == "POST":
+            form = GalleryForm(request.POST, request.FILES, instance=instance)
+            if form.is_valid():
+                form.save()
+                self.message_user(
+                    request,
+                    f"Gallery item was {'updated' if instance else 'added'}.",
+                    level=messages.SUCCESS,
+                )
+                return redirect("admin:core_gallery_changelist")
+        else:
+            form = GalleryForm(instance=instance)
+        context = dict(
+            self.admin_site.each_context(request),
+            form=form,
+            instance=instance,
+            active_section="content",
+            active_page="gallery_edit" if instance else "gallery_add",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/gallery/form.html", context)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if not self.has_delete_permission(request):
+            raise PermissionDenied
+        if request.method == "POST":
+            obj = get_object_or_404(Gallery, pk=object_id)
+            obj.delete()
+            self.message_user(request, "Gallery item deleted.", level=messages.SUCCESS)
+        return redirect("admin:core_gallery_changelist")
+
+
+@admin.register(Notice)
+class NoticeAdmin(admin.ModelAdmin):
+    search_fields = ("title", "description")
+
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        notices = Notice.objects.all().order_by("-published_date", "-created_at")
+        context = dict(
+            self.admin_site.each_context(request),
+            notices=notices,
+            active_section="content",
+            active_page="notice_list",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/notice/list.html", context)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<path:object_id>/view/",
+                self.admin_site.admin_view(self.view_view),
+                name="core_notice_view",
+            ),
+        ]
+        return custom_urls + urls
+
+    def add_view(self, request, form_url="", extra_context=None):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        return self._notice_form_view(request, instance=None)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(Notice, pk=object_id)
+        return self._notice_form_view(request, instance=instance)
+
+    def view_view(self, request, object_id):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(Notice, pk=object_id)
+        context = dict(
+            self.admin_site.each_context(request),
+            instance=instance,
+            active_section="content",
+            active_page="notice_view",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/notice/detail.html", context)
+
+    def _notice_form_view(self, request, instance):
+        if request.method == "POST":
+            form = NoticeForm(request.POST, request.FILES, instance=instance)
+            if form.is_valid():
+                form.save()
+                self.message_user(
+                    request,
+                    f"Notice was {'updated' if instance else 'added'}.",
+                    level=messages.SUCCESS,
+                )
+                return redirect("admin:core_notice_changelist")
+        else:
+            form = NoticeForm(instance=instance)
+        context = dict(
+            self.admin_site.each_context(request),
+            form=form,
+            instance=instance,
+            active_section="content",
+            active_page="notice_edit" if instance else "notice_add",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/notice/form.html", context)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if not self.has_delete_permission(request):
+            raise PermissionDenied
+        if request.method == "POST":
+            obj = get_object_or_404(Notice, pk=object_id)
+            obj.delete()
+            self.message_user(request, "Notice deleted.", level=messages.SUCCESS)
+        return redirect("admin:core_notice_changelist")
+
+
+@admin.register(GallerySection)
+class GallerySectionAdmin(admin.ModelAdmin):
+    search_fields = ("title", "description")
+
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        sections = GallerySection.objects.all().order_by("sort_order", "title")
+        context = dict(
+            self.admin_site.each_context(request),
+            sections=sections,
+            active_section="content",
+            active_page="gallerysection_list",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/gallerysection/list.html", context)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<path:object_id>/view/",
+                self.admin_site.admin_view(self.view_view),
+                name="core_gallerysection_view",
+            ),
+        ]
+        return custom_urls + urls
+
+    def add_view(self, request, form_url="", extra_context=None):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        return self._section_form_view(request, instance=None)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(GallerySection, pk=object_id)
+        return self._section_form_view(request, instance=instance)
+
+    def view_view(self, request, object_id):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(GallerySection, pk=object_id)
+        subsections = GallerySubsection.objects.filter(section=instance).order_by("sort_order", "title")
+        context = dict(
+            self.admin_site.each_context(request),
+            instance=instance,
+            subsections=subsections,
+            active_section="content",
+            active_page="gallerysection_view",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/gallerysection/detail.html", context)
+
+    def _section_form_view(self, request, instance):
+        if request.method == "POST":
+            form = GallerySectionForm(request.POST, instance=instance)
+            if form.is_valid():
+                form.save()
+                self.message_user(
+                    request,
+                    f"Section was {'updated' if instance else 'added'}.",
+                    level=messages.SUCCESS,
+                )
+                return redirect("admin:core_gallerysection_changelist")
+        else:
+            form = GallerySectionForm(instance=instance)
+        context = dict(
+            self.admin_site.each_context(request),
+            form=form,
+            instance=instance,
+            active_section="content",
+            active_page="gallerysection_edit" if instance else "gallerysection_add",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/gallerysection/form.html", context)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if not self.has_delete_permission(request):
+            raise PermissionDenied
+        if request.method == "POST":
+            obj = get_object_or_404(GallerySection, pk=object_id)
+            obj.delete()
+            self.message_user(request, "Section deleted, along with its subsections.", level=messages.SUCCESS)
+        return redirect("admin:core_gallerysection_changelist")
+
+
+@admin.register(GallerySubsection)
+class GallerySubsectionAdmin(admin.ModelAdmin):
+    search_fields = ("title", "description")
+
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        subsections = GallerySubsection.objects.select_related("section").order_by(
+            "section__sort_order", "sort_order", "title"
+        )
+        context = dict(
+            self.admin_site.each_context(request),
+            subsections=subsections,
+            active_section="content",
+            active_page="gallerysubsection_list",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/gallerysubsection/list.html", context)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<path:object_id>/view/",
+                self.admin_site.admin_view(self.view_view),
+                name="core_gallerysubsection_view",
+            ),
+        ]
+        return custom_urls + urls
+
+    def add_view(self, request, form_url="", extra_context=None):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        return self._subsection_form_view(request, instance=None)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(GallerySubsection, pk=object_id)
+        return self._subsection_form_view(request, instance=instance)
+
+    def view_view(self, request, object_id):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(GallerySubsection, pk=object_id)
+        context = dict(
+            self.admin_site.each_context(request),
+            instance=instance,
+            active_section="content",
+            active_page="gallerysubsection_view",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/gallerysubsection/detail.html", context)
+
+    def _subsection_form_view(self, request, instance):
+        if request.method == "POST":
+            form = GallerySubsectionForm(request.POST, request.FILES, instance=instance)
+            if form.is_valid():
+                saved = form.save(commit=False)
+
+                # Existing images vary per subsection, so their per-image
+                # description + removal checkbox aren't declared fields on
+                # the form — they're plain inputs named desc__<i> /
+                # remove__<i> in the template, keyed to the image's
+                # position in the list as it was when the page loaded.
+                current = []
+                for i, item in enumerate(instance.images if instance else []):
+                    if request.POST.get(f"remove__{i}"):
+                        continue
+                    desc = request.POST.get(f"desc__{i}", item.get("description", "")).strip()
+                    current.append({"url": item.get("url", ""), "description": desc})
+
+                uploaded = form.cleaned_data.get("images_upload") or []
+                if uploaded:
+                    from django.core.files.storage import default_storage
+
+                    for i, f in enumerate(uploaded):
+                        path = default_storage.save(f"gallery/{f.name}", f)
+                        caption = request.POST.get(f"upload_caption__{i}", "").strip()
+                        current.append({"url": default_storage.url(path), "description": caption})
+
+                saved.images = current
+                saved.save()
+                self.message_user(
+                    request,
+                    f"Subsection was {'updated' if instance else 'added'}.",
+                    level=messages.SUCCESS,
+                )
+                return redirect("admin:core_gallerysubsection_changelist")
+        else:
+            initial = {}
+            section_id = request.GET.get("section")
+            if section_id and not instance:
+                initial["section"] = section_id
+            form = GallerySubsectionForm(instance=instance, initial=initial)
+        context = dict(
+            self.admin_site.each_context(request),
+            form=form,
+            instance=instance,
+            active_section="content",
+            active_page="gallerysubsection_edit" if instance else "gallerysubsection_add",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/gallerysubsection/form.html", context)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if not self.has_delete_permission(request):
+            raise PermissionDenied
+        if request.method == "POST":
+            obj = get_object_or_404(GallerySubsection, pk=object_id)
+            obj.delete()
+            self.message_user(request, "Subsection deleted.", level=messages.SUCCESS)
+        return redirect("admin:core_gallerysubsection_changelist")
+
+
+@admin.register(AdmissionInfo)
+class AdmissionInfoAdmin(admin.ModelAdmin):
+    search_fields = ("title", "description")
+
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        info_items = AdmissionInfo.objects.all().order_by("-created_at")
+        context = dict(
+            self.admin_site.each_context(request),
+            info_items=info_items,
+            active_section="content",
+            active_page="admissioninfo_list",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/admissioninfo/list.html", context)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<path:object_id>/view/",
+                self.admin_site.admin_view(self.view_view),
+                name="core_admissioninfo_view",
+            ),
+        ]
+        return custom_urls + urls
+
+    def add_view(self, request, form_url="", extra_context=None):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        return self._admissioninfo_form_view(request, instance=None)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(AdmissionInfo, pk=object_id)
+        return self._admissioninfo_form_view(request, instance=instance)
+
+    def view_view(self, request, object_id):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(AdmissionInfo, pk=object_id)
+        context = dict(
+            self.admin_site.each_context(request),
+            instance=instance,
+            active_section="content",
+            active_page="admissioninfo_view",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/admissioninfo/detail.html", context)
+
+    def _admissioninfo_form_view(self, request, instance):
+        if request.method == "POST":
+            form = AdmissionInfoForm(request.POST, request.FILES, instance=instance)
+            if form.is_valid():
+                form.save()
+                self.message_user(
+                    request,
+                    f"Admission info was {'updated' if instance else 'added'}.",
+                    level=messages.SUCCESS,
+                )
+                return redirect("admin:core_admissioninfo_changelist")
+        else:
+            form = AdmissionInfoForm(instance=instance)
+        context = dict(
+            self.admin_site.each_context(request),
+            form=form,
+            instance=instance,
+            active_section="content",
+            active_page="admissioninfo_edit" if instance else "admissioninfo_add",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/admissioninfo/form.html", context)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if not self.has_delete_permission(request):
+            raise PermissionDenied
+        if request.method == "POST":
+            obj = get_object_or_404(AdmissionInfo, pk=object_id)
+            obj.delete()
+            self.message_user(request, "Admission info deleted.", level=messages.SUCCESS)
+        return redirect("admin:core_admissioninfo_changelist")
+
+
+@admin.register(AdmissionInquiry)
+class AdmissionInquiryAdmin(admin.ModelAdmin):
+    search_fields = ("student_name", "student_phone", "guardian_name", "guardian_phone")
+
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        inquiries = AdmissionInquiry.objects.select_related("class_obj").order_by("-created_at")
+        active_status = request.GET.get("status")
+        if active_status:
+            inquiries = inquiries.filter(status=active_status)
+        context = dict(
+            self.admin_site.each_context(request),
+            inquiries=inquiries,
+            status_choices=AdmissionInquiry._meta.get_field("status").choices,
+            active_status=active_status,
+            active_section="inbox",
+            active_page="admissioninquiry_list",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/admissioninquiry/list.html", context)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<path:object_id>/view/",
+                self.admin_site.admin_view(self.view_view),
+                name="core_admissioninquiry_view",
+            ),
+        ]
+        return custom_urls + urls
+
+    def add_view(self, request, form_url="", extra_context=None):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        return self._admissioninquiry_form_view(request, instance=None)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(AdmissionInquiry, pk=object_id)
+        return self._admissioninquiry_form_view(request, instance=instance)
+
+    def view_view(self, request, object_id):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(
+            AdmissionInquiry.objects.select_related("class_obj"), pk=object_id
+        )
+        context = dict(
+            self.admin_site.each_context(request),
+            instance=instance,
+            active_section="inbox",
+            active_page="admissioninquiry_view",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/admissioninquiry/detail.html", context)
+
+    def _admissioninquiry_form_view(self, request, instance):
+        if request.method == "POST":
+            form = AdmissionInquiryAdminForm(request.POST, instance=instance)
+            if form.is_valid():
+                form.save()
+                self.message_user(
+                    request,
+                    f"Admission inquiry was {'updated' if instance else 'added'}.",
+                    level=messages.SUCCESS,
+                )
+                return redirect("admin:core_admissioninquiry_changelist")
+        else:
+            form = AdmissionInquiryAdminForm(instance=instance)
+        context = dict(
+            self.admin_site.each_context(request),
+            form=form,
+            instance=instance,
+            active_section="inbox",
+            active_page="admissioninquiry_edit" if instance else "admissioninquiry_add",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/admissioninquiry/form.html", context)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if not self.has_delete_permission(request):
+            raise PermissionDenied
+        if request.method == "POST":
+            obj = get_object_or_404(AdmissionInquiry, pk=object_id)
+            obj.delete()
+            self.message_user(request, "Admission inquiry deleted.", level=messages.SUCCESS)
+        return redirect("admin:core_admissioninquiry_changelist")
+
+
+@admin.register(ContactMessage)
+class ContactMessageAdmin(admin.ModelAdmin):
+    search_fields = ("name", "phone", "email", "message")
+
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        contact_messages = ContactMessage.objects.all().order_by("-created_at")
+        active_status = request.GET.get("status")
+        if active_status:
+            contact_messages = contact_messages.filter(status=active_status)
+        context = dict(
+            self.admin_site.each_context(request),
+            contact_messages=contact_messages,
+            status_choices=ContactMessage._meta.get_field("status").choices,
+            active_status=active_status,
+            active_section="inbox",
+            active_page="contactmessage_list",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/contactmessage/list.html", context)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<path:object_id>/view/",
+                self.admin_site.admin_view(self.view_view),
+                name="core_contactmessage_view",
+            ),
+        ]
+        return custom_urls + urls
+
+    def add_view(self, request, form_url="", extra_context=None):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        return self._contactmessage_form_view(request, instance=None)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(ContactMessage, pk=object_id)
+        return self._contactmessage_form_view(request, instance=instance)
+
+    def view_view(self, request, object_id):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(ContactMessage, pk=object_id)
+        context = dict(
+            self.admin_site.each_context(request),
+            instance=instance,
+            active_section="inbox",
+            active_page="contactmessage_view",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/contactmessage/detail.html", context)
+
+    def _contactmessage_form_view(self, request, instance):
+        if request.method == "POST":
+            form = ContactMessageAdminForm(request.POST, instance=instance)
+            if form.is_valid():
+                form.save()
+                self.message_user(
+                    request,
+                    f"Contact message was {'updated' if instance else 'added'}.",
+                    level=messages.SUCCESS,
+                )
+                return redirect("admin:core_contactmessage_changelist")
+        else:
+            form = ContactMessageAdminForm(instance=instance)
+        context = dict(
+            self.admin_site.each_context(request),
+            form=form,
+            instance=instance,
+            active_section="inbox",
+            active_page="contactmessage_edit" if instance else "contactmessage_add",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/contactmessage/form.html", context)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if not self.has_delete_permission(request):
+            raise PermissionDenied
+        if request.method == "POST":
+            obj = get_object_or_404(ContactMessage, pk=object_id)
+            obj.delete()
+            self.message_user(request, "Contact message deleted.", level=messages.SUCCESS)
+        return redirect("admin:core_contactmessage_changelist")
+
+
+def _student_initial_from_application(application):
+    """Maps an AdmissionApplication onto StudentForm's fields. Class and
+    batch are left for staff to choose (the application records a course,
+    not a class); the guardian goes into father/mother when the relation
+    says so, otherwise staff see them in the banner on the form."""
+    initial = {
+        "full_name": application.student_name,
+        "date_of_birth": application.date_of_birth,
+        "gender": application.gender or "",
+        "student_phone": application.student_phone or "",
+        "institution_name": application.institution_name or "",
+        "blood_group": application.blood_group or "",
+        "address": application.address or "",
+        "reference": application.reference or "",
+        "admission_date": timezone.localdate(),
+        "status": "Active",
+    }
+    if application.guardian_relation == "Father":
+        initial["father_name"] = application.guardian_name
+        initial["father_phone"] = application.guardian_phone
+    elif application.guardian_relation == "Mother":
+        initial["mother_name"] = application.guardian_name
+        initial["mother_phone"] = application.guardian_phone
+    return initial
+
+
+@admin.register(AdmissionApplication)
+class AdmissionApplicationAdmin(admin.ModelAdmin):
+    """Applications from the public "Apply Now" form. Staff verify each
+    one with the guardian, then use "Start admission" to create the real
+    Student record — nothing here admits anyone automatically."""
+
+    search_fields = ("student_name", "guardian_name", "guardian_phone", "course_title")
+
+    # Statuses staff can jump to with one click from the detail page.
+    # "Admitted" is deliberately not one of them: it is only set by
+    # actually creating the student (see StudentAdmin._student_form_view).
+    QUICK_STATUSES = ("Pending", "Contacted", "Verified", "Rejected")
+
+    def _filtered_applications(self, request):
+        applications = AdmissionApplication.objects.select_related("course", "student").order_by("-created_at", "-id")
+
+        query = request.GET.get("q", "").strip()
+        if query:
+            applications = applications.filter(
+                Q(student_name__icontains=query)
+                | Q(guardian_name__icontains=query)
+                | Q(guardian_phone__icontains=query)
+                | Q(course_title__icontains=query)
+            )
+
+        active_status = request.GET.get("status", "").strip()
+        if active_status:
+            applications = applications.filter(status=active_status)
+        return applications, query, active_status
+
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        applications, query, active_status = self._filtered_applications(request)
+
+        counts = dict(
+            AdmissionApplication.objects.values_list("status").annotate(n=Count("id"))
+        )
+        status_cards = [
+            {"value": value, "label": label, "count": counts.get(value, 0)}
+            for value, label in AdmissionApplication.STATUS_CHOICES
+        ]
+
+        paginator = Paginator(applications, 15)
+        page_obj = paginator.get_page(request.GET.get("page"))
+        preserved_params = request.GET.copy()
+        preserved_params.pop("page", None)
+
+        context = dict(
+            self.admin_site.each_context(request),
+            applications=page_obj,
+            page_obj=page_obj,
+            page_range=_pagination_range(page_obj.number, paginator.num_pages),
+            preserved_querystring=preserved_params.urlencode(),
+            status_cards=status_cards,
+            status_choices=AdmissionApplication.STATUS_CHOICES,
+            active_status=active_status,
+            search_query=query,
+            active_section="inbox",
+            active_page="admissionapplication_list",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/admissionapplication/list.html", context)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<int:application_id>/set-status/",
+                self.admin_site.admin_view(self.set_status_view),
+                name="core_admissionapplication_set_status",
+            ),
+            path(
+                "<int:application_id>/start-admission/",
+                self.admin_site.admin_view(self.start_admission_view),
+                name="core_admissionapplication_start_admission",
+            ),
+            path(
+                "<path:object_id>/view/",
+                self.admin_site.admin_view(self.view_view),
+                name="core_admissionapplication_view",
+            ),
+        ]
+        return custom_urls + urls
+
+    def view_view(self, request, object_id):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(
+            AdmissionApplication.objects.select_related("course", "student"), pk=object_id
+        )
+        context = dict(
+            self.admin_site.each_context(request),
+            instance=instance,
+            quick_statuses=[
+                (value, label) for value, label in AdmissionApplication.STATUS_CHOICES
+                if value in self.QUICK_STATUSES and value != instance.status
+            ],
+            active_section="inbox",
+            active_page="admissionapplication_view",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/admissionapplication/detail.html", context)
+
+    def set_status_view(self, request, application_id):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        application = get_object_or_404(AdmissionApplication, pk=application_id)
+        if request.method == "POST":
+            new_status = request.POST.get("status", "")
+            if new_status in self.QUICK_STATUSES:
+                if application.status == "Admitted":
+                    self.message_user(
+                        request, "This application was admitted earlier.", level=messages.WARNING
+                    )
+                else:
+                    application.status = new_status
+                    application.save(update_fields=["status"])
+                    self.message_user(
+                        request,
+                        f"{application.reference_code} marked {application.get_status_display()}.",
+                        level=messages.SUCCESS,
+                    )
+        return redirect("admin:core_admissionapplication_view", application.pk)
+
+    def start_admission_view(self, request, application_id):
+        """Opens the Add Student form pre-filled from this application."""
+        if not self.has_add_permission(request) and not request.user.has_perm("core.add_student"):
+            raise PermissionDenied
+        application = get_object_or_404(AdmissionApplication, pk=application_id)
+        if application.status == "Admitted" and application.student_id:
+            self.message_user(
+                request, "This application has already led to an admission.", level=messages.INFO
+            )
+            return redirect("admin:core_student_view", application.student_id)
+        return redirect(
+            reverse("admin:core_student_add") + "?" + urlencode({"application": application.pk})
+        )
+
+    def add_view(self, request, form_url="", extra_context=None):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        return self._application_form_view(request, instance=None)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(AdmissionApplication, pk=object_id)
+        return self._application_form_view(request, instance=instance)
+
+    def _application_form_view(self, request, instance):
+        if request.method == "POST":
+            form = AdmissionApplicationAdminForm(request.POST, instance=instance)
+            if form.is_valid():
+                form.save()
+                self.message_user(
+                    request,
+                    f"Application was {'updated' if instance else 'added'}.",
+                    level=messages.SUCCESS,
+                )
+                return redirect("admin:core_admissionapplication_changelist")
+        else:
+            form = AdmissionApplicationAdminForm(instance=instance)
+        context = dict(
+            self.admin_site.each_context(request),
+            form=form,
+            instance=instance,
+            active_section="inbox",
+            active_page="admissionapplication_edit" if instance else "admissionapplication_add",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/admissionapplication/form.html", context)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if not self.has_delete_permission(request):
+            raise PermissionDenied
+        if request.method == "POST":
+            obj = get_object_or_404(AdmissionApplication, pk=object_id)
+            obj.delete()
+            self.message_user(request, "Application deleted.", level=messages.SUCCESS)
+        return redirect("admin:core_admissionapplication_changelist")
+
+
+# ---------------------------------------------------------
+# Finance summary + Other Expenses
+# ---------------------------------------------------------
+
+def _finance_summary(start=None, end=None):
+    """
+    Income, expenses, and net for an inclusive date range (either end may
+    be None for "no limit").
+
+    Income   = student receipts (total minus the receipt's discount)
+               + legacy StudentPayment rows kept for history.
+    Expenses = teacher salary actually PAID (paid_amount, not net_salary —
+               money owed but not yet paid isn't spent yet)
+               + everything recorded under Other Expenses.
+    Net      = income - expenses.
+
+    A salary counts on its payment_date; if that was never filled in, it
+    falls back to the salary month so paid records aren't silently lost.
+    """
+    receipts = StudentPaymentReceipt.objects.all()
+    legacy = StudentPayment.objects.all()
+    other = Expense.objects.all()
+
+    paid_dated = Q(payment_date__isnull=False)
+    paid_undated = Q(payment_date__isnull=True)
+    if start:
+        receipts = receipts.filter(payment_date__gte=start)
+        legacy = legacy.filter(payment_date__gte=start)
+        other = other.filter(expense_date__gte=start)
+        paid_dated &= Q(payment_date__gte=start)
+        paid_undated &= Q(salary_month__gte=start)
+    if end:
+        receipts = receipts.filter(payment_date__lte=end)
+        legacy = legacy.filter(payment_date__lte=end)
+        other = other.filter(expense_date__lte=end)
+        paid_dated &= Q(payment_date__lte=end)
+        paid_undated &= Q(salary_month__lte=end)
+    salaries = TeacherSalary.objects.filter(paid_amount__gt=0).filter(paid_dated | paid_undated)
+
+    receipt_totals = receipts.aggregate(gross=Sum("total_amount"), discount=Sum("total_discount"))
+    income_receipts = (receipt_totals["gross"] or Decimal("0")) - (receipt_totals["discount"] or Decimal("0"))
+    income_legacy = legacy.aggregate(total=Sum("amount"))["total"] or Decimal("0")
+    salaries_paid = salaries.aggregate(total=Sum("paid_amount"))["total"] or Decimal("0")
+    other_expenses = other.aggregate(total=Sum("amount"))["total"] or Decimal("0")
+
+    income = income_receipts + income_legacy
+    expenses = salaries_paid + other_expenses
+    return {
+        "income": income,
+        "salaries_paid": salaries_paid,
+        "other_expenses": other_expenses,
+        "expenses": expenses,
+        "net": income - expenses,
+    }
+
+
+@admin.register(Expense)
+class ExpenseAdmin(admin.ModelAdmin):
+    """Everything the academy spends besides teacher salaries (rent,
+    utilities, supplies...). Feeds the Expenses and Net Revenue figures
+    on the dashboard."""
+
+    search_fields = ("title", "remarks")
+
+    def _filtered_expenses(self, request):
+        expenses = Expense.objects.all().order_by("-expense_date", "-id")
+
+        query = request.GET.get("q", "").strip()
+        if query:
+            expenses = expenses.filter(Q(title__icontains=query) | Q(remarks__icontains=query))
+
+        active_category = request.GET.get("category", "").strip()
+        if active_category:
+            expenses = expenses.filter(category=active_category)
+
+        month_param = request.GET.get("month", "").strip()
+        if month_param:
+            try:
+                month_date = datetime.strptime(month_param, "%Y-%m").date()
+                expenses = expenses.filter(
+                    expense_date__year=month_date.year, expense_date__month=month_date.month
+                )
+            except ValueError:
+                month_param = ""
+
+        return expenses, query, active_category, month_param
+
+    def changelist_view(self, request, extra_context=None):
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        expenses, query, active_category, month_param = self._filtered_expenses(request)
+
+        today = timezone.localdate()
+        month_total = Expense.objects.filter(
+            expense_date__year=today.year, expense_date__month=today.month
+        ).aggregate(total=Sum("amount"))["total"] or 0
+
+        paginator = Paginator(expenses, 15)
+        page_obj = paginator.get_page(request.GET.get("page"))
+
+        preserved_params = request.GET.copy()
+        preserved_params.pop("page", None)
+
+        context = dict(
+            self.admin_site.each_context(request),
+            expenses=page_obj,
+            page_obj=page_obj,
+            page_range=_pagination_range(page_obj.number, paginator.num_pages),
+            preserved_querystring=preserved_params.urlencode(),
+            cards={
+                "count": expenses.count(),
+                "filtered_total": expenses.aggregate(total=Sum("amount"))["total"] or 0,
+                "this_month_total": month_total,
+            },
+            category_choices=Expense.CATEGORIES,
+            active_category=active_category,
+            search_query=query,
+            month_param=month_param,
+            active_section="finance",
+            active_page="expense_list",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/expense/list.html", context)
+
+    def add_view(self, request, form_url="", extra_context=None):
+        if not self.has_add_permission(request):
+            raise PermissionDenied
+        return self._expense_form_view(request, instance=None)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        instance = get_object_or_404(Expense, pk=object_id)
+        return self._expense_form_view(request, instance=instance)
+
+    def _expense_form_view(self, request, instance):
+        if request.method == "POST":
+            form = ExpenseForm(request.POST, instance=instance)
+            if form.is_valid():
+                form.save()
+                self.message_user(
+                    request,
+                    f"Expense was {'updated' if instance else 'added'}.",
+                    level=messages.SUCCESS,
+                )
+                return redirect("admin:core_expense_changelist")
+        else:
+            form = ExpenseForm(instance=instance)
+        context = dict(
+            self.admin_site.each_context(request),
+            form=form,
+            instance=instance,
+            active_section="finance",
+            active_page="expense_edit" if instance else "expense_add",
+            opts=self.model._meta,
+        )
+        return TemplateResponse(request, "admin/core/expense/form.html", context)
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if not self.has_delete_permission(request):
+            raise PermissionDenied
+        if request.method == "POST":
+            obj = get_object_or_404(Expense, pk=object_id)
+            obj.delete()
+            self.message_user(request, "Expense deleted.", level=messages.SUCCESS)
+        return redirect("admin:core_expense_changelist")
+
+
+# ---------------------------------------------------------
+# Dashboard — inject live stats + a full categorized management
+# grid into the admin homepage context
+# ---------------------------------------------------------
+
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
+from django.urls import reverse
+
+_default_each_context = admin.site.each_context
+
+# (display label, url-name key, queryset) for every manageable model,
+# grouped into the categories shown on the dashboard.
+_DASHBOARD_LAYOUT = [
+    ("People", [
+        ("Students", "core_student", lambda: Student.objects.count()),
+        ("Faculty", "core_faculty", lambda: Faculty.objects.count()),
+    ]),
+    ("Academics", [
+        ("Classes", "core_class", lambda: Class.objects.count()),
+        ("Batches", "core_batch", lambda: Batch.objects.count()),
+        ("Subjects", "core_subject", lambda: Subject.objects.count()),
+        ("Class Schedules", "core_classschedule", lambda: ClassSchedule.objects.count()),
+    ]),
+    ("Records", [
+        ("Attendance Records", "core_attendance", lambda: Attendance.objects.count()),
+        ("Exams", "core_exam", lambda: Exam.objects.count()),
+        ("Exam Results", "core_examresult", lambda: ExamResult.objects.count()),
+    ]),
+    ("Finance", [
+        ("Student Payments", "core_studentpayment", lambda: StudentPayment.objects.count()),
+        ("Teacher Salaries", "core_teachersalary", lambda: TeacherSalary.objects.count()),
+        ("Other Expenses", "core_expense", lambda: Expense.objects.count()),
+    ]),
+    ("Website Content", [
+        ("Achievements", "core_achievement", lambda: Achievement.objects.count()),
+        ("Gallery Items", "core_gallery", lambda: Gallery.objects.count()),
+        ("Notices", "core_notice", lambda: Notice.objects.count()),
+        ("Admission Infos", "core_admissioninfo", lambda: AdmissionInfo.objects.count()),
+    ]),
+    ("Inbox", [
+        ("Admission Applications", "core_admissionapplication", lambda: AdmissionApplication.objects.filter(status="Pending").count()),
+        ("Admission Inquiries", "core_admissioninquiry", lambda: AdmissionInquiry.objects.filter(status="New").count()),
+        ("Contact Messages", "core_contactmessage", lambda: ContactMessage.objects.filter(status="Unread").count()),
+    ]),
+    ("System", [
+        ("Users", "auth_user", lambda: get_user_model().objects.count()),
+        ("Groups", "auth_group", lambda: Group.objects.count()),
+    ]),
+]
+
+# Inbox counts above are "needs attention" counts (new/unread), so flag those cards
+_ALERT_SECTIONS = {"Inbox"}
+
+_SECTION_ICONS = {
+    "People": "icon-user",
+    "Academics": "icon-book",
+    "Records": "icon-clipboard",
+    "Finance": "icon-wallet",
+    "Website Content": "icon-image",
+    "Inbox": "icon-mail",
+    "System": "icon-gear",
+}
+
+
+def _build_dashboard_sections():
+    sections = []
+    for label, items in _DASHBOARD_LAYOUT:
+        cards = []
+        for name, url_key, count_fn in items:
+            cards.append({
+                "name": name,
+                "count": count_fn(),
+                "add_url_name": f"admin:{url_key}_add",
+                "list_url_name": f"admin:{url_key}_changelist",
+            })
+        sections.append({
+            "label": label,
+            "cards": cards,
+            "is_alert": label in _ALERT_SECTIONS,
+            "icon": _SECTION_ICONS.get(label, "icon-book"),
+            "total": sum(c["count"] for c in cards),
+        })
+    return sections
+
+
+def _each_context_with_dashboard(request):
+    context = _default_each_context(request)
+
+    try:
+        is_index = request.path == reverse("admin:index")
+    except Exception:
+        is_index = False
+
+    if not is_index:
+        return context
+
+    today = timezone.localdate()
+    month_start = today.replace(day=1)
+
+    todays_attendance = Attendance.objects.filter(attendance_date=today)
+    month_end = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+    month_finance = _finance_summary(month_start, month_end)
+    all_time_finance = _finance_summary()
+    monthly_revenue = month_finance["income"]
+
+    context["dashboard_stats"] = {
+        "active_students": Student.objects.filter(status="Active").count(),
+        "total_faculty": Faculty.objects.count(),
+        "pending_inquiries": AdmissionInquiry.objects.filter(status="New").count(),
+        "pending_applications": AdmissionApplication.objects.filter(status="Pending").count(),
+        "unread_messages": ContactMessage.objects.filter(status="Unread").count(),
+        "today_present": todays_attendance.filter(status="Present").count(),
+        "today_total": todays_attendance.count(),
+        "monthly_revenue": monthly_revenue,
+        "pending_salaries": TeacherSalary.objects.filter(status="Pending").count(),
+    }
+    context["dashboard_finance"] = {
+        "month_label": month_start.strftime("%B %Y"),
+        "month": month_finance,
+        "all_time": all_time_finance,
+    }
+    context["dashboard_sections"] = _build_dashboard_sections()
+
+    # Restores the audit-trail visibility that the default admin sidebar
+    # used to provide (we removed {% block sidebar %} to fix the blank
+    # right-column layout bug) — folded into the custom dashboard instead
+    # of the default floating panel.
+    context["dashboard_recent_actions"] = (
+        LogEntry.objects.select_related("content_type", "user")
+        .filter(user_id=request.user.pk)
+        .order_by("-action_time")[:8]
+    )
+
+    hour = timezone.localtime().hour
+    if hour < 12:
+        greeting = "Good morning"
+    elif hour < 17:
+        greeting = "Good afternoon"
+    else:
+        greeting = "Good evening"
+    context["dashboard_greeting"] = greeting
+    context["dashboard_today"] = today.strftime("%A, %d %B %Y")
+
+    return context
+
+
+admin.site.each_context = _each_context_with_dashboard

@@ -1,0 +1,245 @@
+{% extends "admin/core/dashboard_base.html" %}
+{% block title %}Dashboard — Update IT{% endblock %}
+{% block crumb %}Dashboard{% endblock %}
+
+{% block extra_head %}
+<style>
+  .greeting { font-size: 1.6rem; font-weight: 700; margin: 0 0 4px; }
+  .greeting-sub { color: var(--muted); font-size: 0.95rem; margin: 0 0 28px; }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 34px;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 20px 22px;
+  }
+  .stat-card.alert { border-color: var(--danger-soft-border); background: var(--danger-soft); }
+  .stat-label {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 0 0 8px;
+  }
+  .stat-card.alert .stat-label { color: #9A3A2C; }
+  .stat-value { font-size: 1.7rem; font-weight: 700; color: var(--text); }
+  .stat-card.alert .stat-value { color: var(--danger); }
+  .stat-note { font-size: 0.82rem; color: var(--muted); margin-top: 4px; }
+
+  .finance-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 14px;
+  }
+  .stat-card.income .stat-value { color: #166534; }
+  .stat-card.expense .stat-value { color: #9A3412; }
+  .stat-card.net-positive { border-color: #86EFAC; background: #F0FDF4; }
+  .stat-card.net-positive .stat-value { color: #166534; }
+  .stat-card.net-negative { border-color: var(--danger-soft-border); background: var(--danger-soft); }
+  .stat-card.net-negative .stat-value { color: var(--danger); }
+  .finance-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .finance-header .section-heading { margin: 0; }
+  .finance-alltime {
+    font-size: 0.88rem;
+    color: var(--muted);
+    margin: 0 0 34px;
+  }
+  .finance-alltime strong { color: var(--text); }
+
+  .section-heading {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin: 0 0 14px;
+  }
+
+  .section-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 18px;
+    margin-bottom: 34px;
+  }
+  .section-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 18px 20px;
+  }
+  .section-block.is-alert { border-color: var(--danger-soft-border); }
+  .section-block-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .section-block-title {
+    font-weight: 700;
+    font-size: 0.95rem;
+  }
+  .section-block.is-alert .section-block-title { color: var(--danger); }
+  .section-block-total {
+    font-size: 0.78rem;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .section-card-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 9px 0;
+    border-top: 1px solid var(--border);
+    font-size: 0.88rem;
+  }
+  .section-card-row:first-of-type { border-top: none; }
+  .section-card-row-name { color: var(--text); }
+  .section-card-row-count {
+    font-weight: 700;
+    color: var(--accent-hover);
+    margin-right: 12px;
+  }
+  .section-block.is-alert .section-card-row-count { color: var(--danger); }
+  .section-card-row-actions { display: flex; align-items: center; gap: 10px; }
+  .section-card-row-link {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-decoration: none !important;
+  }
+  .section-card-row-link:hover { color: var(--accent-hover); }
+
+  .recent-list { list-style: none; margin: 0; padding: 0; }
+  .recent-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.88rem;
+  }
+  .recent-item:last-child { border-bottom: none; }
+  .recent-item-time { color: var(--muted); font-size: 0.8rem; white-space: nowrap; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<p class="greeting">{{ dashboard_greeting }}, {{ request.user.first_name|default:request.user.get_username }}</p>
+<p class="greeting-sub">{{ dashboard_today }} — here is a look at what's going on at Update IT today.</p>
+
+<div class="stat-grid">
+  <div class="stat-card">
+    <p class="stat-label">Active students</p>
+    <p class="stat-value">{{ dashboard_stats.active_students }}</p>
+  </div>
+  <div class="stat-card">
+    <p class="stat-label">Faculty</p>
+    <p class="stat-value">{{ dashboard_stats.total_faculty }}</p>
+  </div>
+  <!-- <div class="stat-card">
+    <p class="stat-label">Present today</p>
+    <p class="stat-value">{{ dashboard_stats.today_present }} / {{ dashboard_stats.today_total }}</p>
+    <p class="stat-note">Students recorded as present so far</p>
+  </div> -->
+  <div class="stat-card {% if dashboard_stats.pending_applications %}alert{% endif %}">
+    <p class="stat-label">Applications to verify</p>
+    <p class="stat-value">{{ dashboard_stats.pending_applications }}</p>
+    <p class="stat-note">Received through the Apply Now form</p>
+  </div>
+  <div class="stat-card {% if dashboard_stats.pending_inquiries %}alert{% endif %}">
+    <p class="stat-label">New admission inquiries</p>
+    <p class="stat-value">{{ dashboard_stats.pending_inquiries }}</p>
+  </div>
+  <div class="stat-card {% if dashboard_stats.unread_messages %}alert{% endif %}">
+    <p class="stat-label">Unread messages</p>
+    <p class="stat-value">{{ dashboard_stats.unread_messages }}</p>
+  </div>
+  <div class="stat-card {% if dashboard_stats.pending_salaries %}alert{% endif %}">
+    <p class="stat-label">Pending salary payments</p>
+    <p class="stat-value">{{ dashboard_stats.pending_salaries }}</p>
+  </div>
+</div>
+
+<div class="finance-header">
+  <p class="section-heading">Finance — {{ dashboard_finance.month_label }}</p>
+  <div style="display:flex; gap:10px; flex-wrap:wrap;">
+    <a href="{% url 'admin:core_expense_add' %}" class="btn btn-accent btn-sm">+ Add expense</a>
+    <a href="{% url 'admin:core_expense_changelist' %}" class="btn btn-ghost btn-sm">View expenses</a>
+  </div>
+</div>
+<div class="finance-grid">
+  <div class="stat-card income">
+    <p class="stat-label">Income</p>
+    <p class="stat-value">৳{{ dashboard_finance.month.income|floatformat:0 }}</p>
+    <p class="stat-note">Student fees received, net of discounts</p>
+  </div>
+  <div class="stat-card expense">
+    <p class="stat-label">Expenses</p>
+    <p class="stat-value">৳{{ dashboard_finance.month.expenses|floatformat:0 }}</p>
+    <p class="stat-note">Salaries ৳{{ dashboard_finance.month.salaries_paid|floatformat:0 }} + other ৳{{ dashboard_finance.month.other_expenses|floatformat:0 }}</p>
+  </div>
+  <div class="stat-card {% if dashboard_finance.month.net < 0 %}net-negative{% else %}net-positive{% endif %}">
+    <p class="stat-label">Net revenue</p>
+    <p class="stat-value">{% if dashboard_finance.month.net < 0 %}−{% endif %}৳{{ dashboard_finance.month.net|floatformat:0|cut:"-" }}</p>
+    <p class="stat-note">{% if dashboard_finance.month.net < 0 %}Expenses exceeded collections{% else %}Income minus expenses{% endif %}</p>
+  </div>
+</div>
+<p class="finance-alltime">
+  All time: income <strong>৳{{ dashboard_finance.all_time.income|floatformat:0 }}</strong>
+  · expenses <strong>৳{{ dashboard_finance.all_time.expenses|floatformat:0 }}</strong>
+  · net <strong>{% if dashboard_finance.all_time.net < 0 %}−{% endif %}৳{{ dashboard_finance.all_time.net|floatformat:0|cut:"-" }}</strong>
+</p>
+
+<p class="section-heading">Manage</p>
+<div class="section-grid">
+  {% for section in dashboard_sections %}
+  <div class="section-block {% if section.is_alert %}is-alert{% endif %}">
+    <div class="section-block-header">
+      <span class="section-block-title">{{ section.label }}</span>
+      <span class="section-block-total">{{ section.total }} total</span>
+    </div>
+    {% for card in section.cards %}
+    <div class="section-card-row">
+      <span class="section-card-row-name">
+        <span class="section-card-row-count">{{ card.count }}</span>{{ card.name }}
+      </span>
+      <span class="section-card-row-actions">
+        <a class="section-card-row-link" href="{% url card.list_url_name %}">View</a>
+        <a class="section-card-row-link" href="{% url card.add_url_name %}">Add</a>
+      </span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+
+{% if dashboard_recent_actions %}
+<p class="section-heading">Your recent activity</p>
+<div class="panel" style="padding: 8px 20px;">
+  <ul class="recent-list">
+    {% for action in dashboard_recent_actions %}
+    <li class="recent-item">
+      <span>{{ action }}</span>
+      <span class="recent-item-time">{{ action.action_time|timesince }} ago</span>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% endblock %}

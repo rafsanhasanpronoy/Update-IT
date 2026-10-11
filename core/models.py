@@ -1,0 +1,745 @@
+# This is an auto-generated Django model module.
+# You'll have to do the following manually to clean this up:
+#   * Rearrange models' order
+#   * Make sure each model has one field with primary_key=True
+#   * Make sure each ForeignKey and OneToOneField has `on_delete` set to the desired behavior
+#   * Remove `managed = False` lines if you wish to allow Django to create, modify, and delete the table
+# Feel free to rename the models, but don't rename db_table values or field names.
+import django
+from django.core.validators import MaxValueValidator, MinValueValidator
+from django.db import models
+
+# CompositePrimaryKey was added in Django 5.2. If you're on an older
+# version this import (and therefore the whole app) fails at startup —
+# so we detect the version instead of assuming it's available.
+DJANGO_VERSION = django.VERSION[:2]
+_HAS_COMPOSITE_PK = DJANGO_VERSION >= (5, 2)
+
+BLOOD_GROUP_CHOICES = [
+    ("A+", "A+"), ("A-", "A-"),
+    ("B+", "B+"), ("B-", "B-"),
+    ("AB+", "AB+"), ("AB-", "AB-"),
+    ("O+", "O+"), ("O-", "O-"),
+]
+
+
+class Achievement(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True, null=True)
+    image_url = models.TextField(blank=True, null=True)
+    image_urls = models.JSONField(default=list, blank=True)
+    achievement_date = models.DateField(blank=True, null=True)
+    is_published = models.BooleanField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = False
+        db_table = 'achievements'
+
+    def __str__(self):
+        return self.title
+
+
+class AdmissionInfo(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True, null=True)
+    image_url = models.TextField(blank=True, null=True)
+    admission_fee = models.DecimalField(
+        max_digits=10, decimal_places=2, blank=True, null=True,
+        validators=[MinValueValidator(0)],
+    )
+    monthly_fee = models.DecimalField(
+        max_digits=10, decimal_places=2, blank=True, null=True,
+        validators=[MinValueValidator(0)],
+    )
+    duration = models.CharField(max_length=100, blank=True, null=True)
+    is_active = models.BooleanField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = False
+        db_table = 'admission_info'
+
+    def __str__(self):
+        return self.title
+
+
+class AdmissionInquiry(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    student_name = models.CharField(max_length=150)
+    student_phone = models.CharField(max_length=20)
+    guardian_name = models.CharField(max_length=150, blank=True, null=True)
+    guardian_phone = models.CharField(max_length=20, blank=True, null=True)
+    class_obj = models.ForeignKey('Class', models.DO_NOTHING, db_column='class_id', blank=True, null=True)
+    message = models.TextField(blank=True, null=True)
+    status = models.CharField(max_length=20, choices=[
+        ('New', 'New'),
+        ('Contacted', 'Contacted'),
+        ('Admitted', 'Admitted'),
+        ('Rejected', 'Rejected'),
+    ], default='New')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = False
+        db_table = 'admission_inquiries'
+        verbose_name = 'Admission Inquiry'
+        verbose_name_plural = 'Admission Inquiries'
+
+    def __str__(self):
+        return self.student_name
+
+
+class AdmissionApplication(models.Model):
+    """An "Apply Now" submission from the public site.
+
+    This is NOT an admission. It records who wants to enrol and in which
+    course, then waits for staff to verify it with the guardian (a visit
+    or a phone call). Only when staff admit the student does a Student
+    record get created — see StudentAdmin._student_form_view, which marks
+    the application Admitted and links it to the new student.
+
+    Separate from AdmissionInquiry, which is a lightweight "call me back"
+    question from the Admission page. Needs the table created by
+    sql/create_admission_applications_table.sql.
+    """
+
+    STATUS_CHOICES = [
+        ("Pending", "Pending verification"),
+        ("Contacted", "Guardian contacted"),
+        ("Verified", "Verified"),
+        ("Admitted", "Admitted"),
+        ("Rejected", "Rejected"),
+    ]
+    GUARDIAN_RELATIONS = [
+        ("Father", "Father"),
+        ("Mother", "Mother"),
+        ("Other", "Other guardian"),
+    ]
+    GENDER_CHOICES = [("Male", "Male"), ("Female", "Female"), ("Other", "Other")]
+
+    id = models.BigAutoField(primary_key=True)
+    course = models.ForeignKey(
+        'AdmissionInfo', models.DO_NOTHING, db_column='course_id', blank=True, null=True,
+        related_name='applications',
+    )
+    # Snapshot of the course name at the time of applying, so the record
+    # still makes sense if the course is renamed or removed later.
+    course_title = models.CharField(max_length=200, blank=True, null=True)
+    student_name = models.CharField(max_length=150)
+    date_of_birth = models.DateField()
+    gender = models.CharField(max_length=20, choices=GENDER_CHOICES, blank=True, null=True)
+    student_phone = models.CharField(max_length=20, blank=True, null=True)
+    institution_name = models.CharField(max_length=200, blank=True, null=True)
+    blood_group = models.CharField(max_length=5, choices=BLOOD_GROUP_CHOICES, blank=True, null=True)
+    address = models.TextField(blank=True, null=True)
+    guardian_name = models.CharField(max_length=150)
+    guardian_relation = models.CharField(max_length=20, choices=GUARDIAN_RELATIONS, default="Father")
+    guardian_phone = models.CharField(max_length=20)
+    preferred_batch = models.CharField(max_length=150, blank=True, null=True)
+    reference = models.CharField(max_length=200, blank=True, null=True)
+    message = models.TextField(blank=True, null=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="Pending")
+    staff_notes = models.TextField(blank=True, null=True)
+    student = models.ForeignKey(
+        'Student', models.DO_NOTHING, db_column='student_id', blank=True, null=True,
+        related_name='applications',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = False
+        db_table = 'admission_applications'
+        verbose_name = 'Admission Application'
+        verbose_name_plural = 'Admission Applications'
+
+    def __str__(self):
+        return f"{self.student_name} — {self.course_title or 'no course'}"
+
+    @property
+    def reference_code(self):
+        """The number the guardian quotes when they call or visit."""
+        year = self.created_at.year if self.created_at else ""
+        return f"APP-{year}-{self.pk:05d}" if self.pk else ""
+
+
+class Attendance(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    student = models.ForeignKey('Student', models.DO_NOTHING)
+    batch = models.ForeignKey('Batch', models.DO_NOTHING)
+    attendance_date = models.DateField()
+    status = models.CharField(max_length=20, choices=[
+        ('Present', 'Present'),
+        ('Absent', 'Absent'),
+        ('Late', 'Late'),
+    ])
+    remarks = models.TextField(blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'attendance'
+        # NOTE (flagged in QA pass): this constrains a student to ONE
+        # attendance record per day system-wide, even though `batch` is
+        # also stored on this row. If a student can ever be in more than
+        # one batch, change this to unique_together on
+        # (student, batch, attendance_date) instead — confirm the
+        # intended business rule before changing, since it affects
+        # existing data.
+        unique_together = (('student', 'attendance_date'),)
+        verbose_name = 'Attendance Record'
+        verbose_name_plural = 'Attendance Records'
+
+    def __str__(self):
+        return f"{self.student} — {self.attendance_date} ({self.status})"
+
+
+class FacultyAttendance(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    teacher = models.ForeignKey('Faculty', models.DO_NOTHING)
+    attendance_date = models.DateField()
+    status = models.CharField(max_length=20, choices=[
+        ('Present', 'Present'),
+        ('Absent', 'Absent'),
+        ('Late', 'Late'),
+    ])
+    classes_taken = models.PositiveIntegerField(default=0, blank=True)
+    remarks = models.TextField(blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'faculty_attendance'
+        unique_together = (('teacher', 'attendance_date'),)
+        verbose_name = 'Faculty Attendance Record'
+        verbose_name_plural = 'Faculty Attendance Records'
+
+    def __str__(self):
+        return f"{self.teacher} — {self.attendance_date} ({self.status})"
+
+
+class Batch(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    class_obj = models.ForeignKey('Class', models.DO_NOTHING, db_column='class_id')
+    batch_name = models.CharField(max_length=100)
+    room = models.CharField(max_length=50, blank=True, null=True)
+    start_time = models.TimeField(blank=True, null=True)
+    end_time = models.TimeField(blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'batches'
+        unique_together = (('class_obj', 'batch_name'),)
+        verbose_name = 'Batch'
+        verbose_name_plural = 'Batches'
+
+    def __str__(self):
+        return f"{self.class_obj.class_name} — {self.batch_name}"
+
+
+class ClassSchedule(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    class_obj = models.ForeignKey('Class', models.DO_NOTHING, db_column='class_id')
+    batch = models.ForeignKey(Batch, models.DO_NOTHING)
+    teacher = models.ForeignKey('Faculty', models.DO_NOTHING)
+    subject = models.ForeignKey('Subject', models.DO_NOTHING)
+    day_of_week = models.CharField(max_length=20)
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    room = models.CharField(max_length=50, blank=True, null=True)
+    status = models.CharField(max_length=20, choices=[
+        ('Active', 'Active'),
+        ('Cancelled', 'Cancelled'),
+        ('Rescheduled', 'Rescheduled'),
+    ], default='Active')
+    notes = models.TextField(blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'class_schedule'
+
+    def __str__(self):
+        return f"{self.batch} — {self.subject} ({self.day_of_week})"
+
+
+class Class(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    class_name = models.CharField(max_length=100)
+    academic_year = models.IntegerField()
+
+    class Meta:
+        managed = False
+        db_table = 'classes'
+        unique_together = (('class_name', 'academic_year'),)
+        verbose_name = 'Class'
+        verbose_name_plural = 'Classes'
+
+    def __str__(self):
+        return f"{self.class_name} ({self.academic_year})"
+
+
+class ContactMessage(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    name = models.CharField(max_length=150)
+    phone = models.CharField(max_length=20, blank=True, null=True)
+    email = models.CharField(max_length=150, blank=True, null=True)
+    message = models.TextField()
+    status = models.CharField(max_length=20, choices=[
+        ('Unread', 'Unread'),
+        ('Read', 'Read'),
+        ('Replied', 'Replied'),
+    ], default='Unread')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = False
+        db_table = 'contact_messages'
+
+    def __str__(self):
+        return self.name
+
+
+class ExamResult(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    exam = models.ForeignKey('Exam', models.DO_NOTHING)
+    student = models.ForeignKey('Student', models.DO_NOTHING)
+    subject = models.ForeignKey('Subject', models.DO_NOTHING)
+    marks = models.DecimalField(max_digits=5, decimal_places=2, validators=[MinValueValidator(0)])
+    grade = models.CharField(max_length=10, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'exam_results'
+        unique_together = (('exam', 'student', 'subject'),)
+
+    def __str__(self):
+        return f"{self.student} — {self.subject} ({self.marks})"
+
+    def save(self, *args, **kwargs):
+        # Safety net: a result is never stored without a grade. Forms and
+        # the bulk upload set it themselves; this covers anything else
+        # (scripts, the shell, other admin paths).
+        if not self.grade and self.marks is not None:
+            from .results import grade_for
+            self.grade = grade_for(self.marks, self.exam.full_marks)[0]
+        super().save(*args, **kwargs)
+
+
+class Exam(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    class_obj = models.ForeignKey(Class, models.DO_NOTHING, db_column='class_id')
+    exam_name = models.CharField(max_length=100)
+    exam_date = models.DateField()
+    # What each subject is marked out of. Grades, percentages and GPA are
+    # all worked out against this. Needs sql/add_exam_full_marks.sql.
+    full_marks = models.DecimalField(
+        max_digits=6, decimal_places=2, default=100,
+        validators=[MinValueValidator(1), MaxValueValidator(999)],
+    )
+
+    class Meta:
+        managed = False
+        db_table = 'exams'
+
+    def __str__(self):
+        return f"{self.exam_name} — {self.class_obj.class_name}"
+
+
+class Expense(models.Model):
+    """Any money the academy spends that isn't a teacher salary — rent,
+    utilities, supplies, repairs, and so on. Teacher salaries are already
+    tracked in TeacherSalary, so the dashboard adds the two together to
+    get total expenses.
+
+    The `expenses` table must exist in the database (Django doesn't
+    manage it, like every other model here) — see
+    sql/create_expenses_table.sql.
+    """
+
+    CATEGORIES = [
+        ("Rent", "Rent"),
+        ("Utilities", "Utilities (electricity, internet, water)"),
+        ("Supplies", "Supplies & Stationery"),
+        ("Maintenance", "Maintenance & Repairs"),
+        ("Marketing", "Marketing & Advertising"),
+        ("Equipment", "Equipment"),
+        ("Events", "Events & Refreshments"),
+        ("Other", "Other"),
+    ]
+    PAYMENT_METHODS = [
+        ("Cash", "Cash"),
+        ("Bank", "Bank Transfer"),
+        ("Bkash", "bKash"),
+        ("Nagad", "Nagad"),
+    ]
+
+    id = models.BigAutoField(primary_key=True)
+    title = models.CharField(max_length=200)
+    category = models.CharField(max_length=30, choices=CATEGORIES, default="Other")
+    amount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0)])
+    expense_date = models.DateField()
+    payment_method = models.CharField(max_length=20, choices=PAYMENT_METHODS, default="Cash")
+    remarks = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = False
+        db_table = 'expenses'
+        verbose_name = 'Expense'
+        verbose_name_plural = 'Expenses'
+
+    def __str__(self):
+        return f"{self.title} ({self.amount})"
+
+
+class Faculty(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    full_name = models.CharField(max_length=150)
+    photo_url = models.TextField(blank=True, null=True)
+    designation = models.CharField(max_length=100, blank=True, null=True)
+    phone = models.CharField(max_length=20, blank=True, null=True)
+    email = models.CharField(max_length=150, blank=True, null=True)
+    joining_date = models.DateField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = False
+        db_table = 'faculty'
+        verbose_name = 'Faculty'
+        verbose_name_plural = 'Faculty'
+
+    def __str__(self):
+        return self.full_name
+
+
+class Gallery(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    title = models.CharField(max_length=200, blank=True, null=True)
+    image_url = models.TextField()
+    category = models.CharField(max_length=100, blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
+    is_published = models.BooleanField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = False
+        db_table = 'gallery'
+        verbose_name = 'Gallery Item'
+        verbose_name_plural = 'Gallery Items'
+
+    def __str__(self):
+        return self.title or f"Gallery item #{self.pk}"
+
+
+class GallerySection(models.Model):
+    """A top-level heading on the public Gallery page, e.g. 'Sports Day
+    2026' or 'Campus'. Holds one or more GallerySubsections."""
+
+    id = models.BigAutoField(primary_key=True)
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True, null=True)
+    is_published = models.BooleanField(default=True)
+    sort_order = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = False
+        db_table = 'gallery_sections'
+        verbose_name = 'Gallery Section'
+        verbose_name_plural = 'Gallery Sections'
+
+    def __str__(self):
+        return self.title
+
+
+class GallerySubsection(models.Model):
+    """A group of images within a GallerySection, e.g. 'Day 1' or
+    'Prize Giving'. `images` holds the gallery itself: a JSON list of
+    {"url": ..., "description": ...} objects, each editable and
+    individually removable from the admin."""
+
+    id = models.BigAutoField(primary_key=True)
+    section = models.ForeignKey(
+        GallerySection,
+        on_delete=models.CASCADE,
+        related_name='subsections',
+        db_column='section_id',
+    )
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True, null=True)
+    images = models.JSONField(default=list, blank=True)
+    is_published = models.BooleanField(default=True)
+    sort_order = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = False
+        db_table = 'gallery_subsections'
+        verbose_name = 'Gallery Subsection'
+        verbose_name_plural = 'Gallery Subsections'
+
+    def __str__(self):
+        return self.title
+
+
+class Notice(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    title = models.CharField(max_length=200)
+    description = models.TextField()
+    image_url = models.TextField(blank=True, null=True)
+    published_date = models.DateField()
+    is_published = models.BooleanField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = False
+        db_table = 'notices'
+
+    def __str__(self):
+        return self.title
+
+
+class StudentPayment(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    student = models.ForeignKey('Student', models.DO_NOTHING)
+    payment_type = models.CharField(max_length=30, choices=[
+        ('Admission Fee', 'Admission Fee'),
+        ('Monthly Fee', 'Monthly Fee'),
+        ('Exam Fee', 'Exam Fee'),
+        ('Registration Fee', 'Registration Fee'),
+        ('Other', 'Other'),
+    ])
+    amount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0)])
+    payment_date = models.DateField()
+    payment_month = models.DateField(blank=True, null=True)
+    remarks = models.TextField(blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'student_payments'
+
+    def __str__(self):
+        return f"{self.student} — {self.payment_type} ({self.amount})"
+
+
+class StudentPaymentReceipt(models.Model):
+    """
+    Replaces the old one-payment-per-fee-per-receipt flow above (kept
+    untouched for history) with one receipt covering several fees at
+    once — e.g. January + February + March Monthly Fee, or an Admission
+    Fee plus the first month's fee, all printed on a single receipt.
+
+    `items` is a JSON list of line items, each shaped like:
+        {"payment_type": "Monthly Fee", "payment_month": "2026-01-01",
+         "label": "January 2026", "amount": 1500, "discount": 0, "net": 1500}
+    Same pattern as GallerySubsection.images — a flexible list on the
+    parent record rather than a separate child table.
+    """
+
+    PAYMENT_METHODS = [
+        ("Cash", "Cash"),
+        ("Bank", "Bank Transfer"),
+        ("Bkash", "bKash"),
+        ("Nagad", "Nagad"),
+    ]
+
+    id = models.BigAutoField(primary_key=True)
+    student = models.ForeignKey('Student', models.DO_NOTHING)
+    receipt_number = models.CharField(max_length=50, unique=True, blank=True, null=True)
+    payment_date = models.DateField()
+    payment_method = models.CharField(max_length=20, choices=PAYMENT_METHODS, default="Cash")
+    transaction_id = models.CharField(max_length=100, blank=True, null=True)
+    items = models.JSONField(default=list)
+    total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    total_discount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    remarks = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = False
+        db_table = 'student_payment_receipts'
+        verbose_name = 'Student Payment Receipt'
+        verbose_name_plural = 'Student Payment Receipts'
+
+    def __str__(self):
+        return f"{self.student} — {self.receipt_number or self.pk}"
+
+    @property
+    def net_total(self):
+        return (self.total_amount or 0) - (self.total_discount or 0)
+
+
+class Student(models.Model):
+    BLOOD_GROUPS = BLOOD_GROUP_CHOICES
+
+    id = models.BigAutoField(primary_key=True)
+    student_code = models.CharField(unique=True, max_length=30)
+    class_obj = models.ForeignKey(Class, models.DO_NOTHING, db_column='class_id')
+    batch = models.ForeignKey(Batch, models.DO_NOTHING, blank=True, null=True)
+    # Free text rather than a fixed choice list — SSC/HSC students use a
+    # group (Science, Business Studies, Humanities), Honours students use
+    # a year (1st/2nd/3rd/4th Year), and whichever applies just gets
+    # typed in here rather than forcing one hardcoded list to cover both.
+    group = models.CharField(max_length=100, blank=True, null=True)
+    full_name = models.CharField(max_length=150)
+    photo_url = models.TextField(blank=True, null=True)
+    gender = models.CharField(max_length=20, blank=True, null=True)
+    date_of_birth = models.DateField(blank=True, null=True)
+    # The school or college the student currently attends. Needs the
+    # columns added by sql/add_student_admission_fields.sql.
+    institution_name = models.CharField(max_length=200, blank=True, null=True)
+    blood_group = models.CharField(max_length=5, choices=BLOOD_GROUPS, blank=True, null=True)
+    # Who referred this student (a person, another student, an ad...). Optional.
+    reference = models.CharField(max_length=200, blank=True, null=True)
+    student_phone = models.CharField(max_length=20, blank=True, null=True)
+    father_name = models.CharField(max_length=150, blank=True, null=True)
+    father_phone = models.CharField(max_length=20, blank=True, null=True)
+    mother_name = models.CharField(max_length=150, blank=True, null=True)
+    mother_phone = models.CharField(max_length=20, blank=True, null=True)
+    address = models.TextField(blank=True, null=True)
+    admission_date = models.DateField(blank=True, null=True)
+    status = models.CharField(max_length=20, choices=[
+        ('Active', 'Active'),
+        ('Inactive', 'Inactive'),
+        ('Completed', 'Completed'),
+        ('Left', 'Left'),
+    ], default='Active')
+
+    class Meta:
+        managed = False
+        db_table = 'students'
+
+    def __str__(self):
+        return f"{self.full_name} ({self.student_code})"
+
+
+class Subject(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    class_obj = models.ForeignKey('Class', models.DO_NOTHING, db_column='class_id')
+    subject_name = models.CharField(max_length=100)
+    subject_code = models.CharField(unique=True, max_length=30, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = False
+        db_table = 'subjects'
+        unique_together = (('subject_name', 'class_obj'),)
+
+    def __str__(self):
+        return f"{self.subject_name} ({self.class_obj.class_name})"
+
+
+class TeacherSalary(models.Model):
+    PAYMENT_METHODS = [
+        ("Cash", "Cash"),
+        ("Bank", "Bank Transfer"),
+        ("Bkash", "bKash"),
+        ("Nagad", "Nagad"),
+    ]
+
+    id = models.BigAutoField(primary_key=True)
+    teacher = models.ForeignKey(Faculty, models.DO_NOTHING)
+    salary_month = models.DateField()
+
+    # Legacy flat amount, kept untouched for old records and any code
+    # still reading it. New records keep it in sync with net_salary
+    # (see TeacherSalaryForm.save) but it's no longer edited directly.
+    amount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0)])
+
+    receipt_number = models.CharField(max_length=50, unique=True, blank=True, null=True)
+
+    gross_salary = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    bonus = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    # Per-class pay, for teachers paid by the class rather than (or in
+    # addition to) a fixed monthly gross_salary — e.g. 20 classes at
+    # ৳300/class. class_based_pay is stored so it doesn't silently drift
+    # if the default rate in settings changes later.
+    classes_taken = models.PositiveIntegerField(default=0, blank=True)
+    rate_per_class = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    class_based_pay = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    # "Other" deductions only (manual, e.g. an advance) — attendance-based
+    # deductions are tracked separately below so re-editing a record never
+    # double-applies them.
+    deduction = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    present_days = models.PositiveIntegerField(default=0, blank=True)
+    absent_days = models.PositiveIntegerField(default=0, blank=True)
+    late_days = models.PositiveIntegerField(default=0, blank=True)
+    attendance_deduction = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    net_salary = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    paid_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    due_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    payment_method = models.CharField(max_length=20, choices=PAYMENT_METHODS, default="Cash")
+    transaction_id = models.CharField(max_length=100, blank=True, null=True)
+
+    payment_date = models.DateField(blank=True, null=True)
+    status = models.CharField(max_length=20, choices=[
+        ('Pending', 'Pending'),
+        ('Partial', 'Partially Paid'),
+        ('Paid', 'Paid'),
+    ], default='Pending')
+    remarks = models.TextField(blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'teacher_salary'
+        unique_together = (('teacher', 'salary_month'),)
+        verbose_name = 'Teacher Salary'
+        verbose_name_plural = 'Teacher Salaries'
+
+    def __str__(self):
+        return f"{self.teacher} — {self.salary_month}"
+
+
+if _HAS_COMPOSITE_PK:
+    class TeacherSubject(models.Model):
+        pk = models.CompositePrimaryKey('teacher_id', 'subject_id')
+        teacher = models.ForeignKey(Faculty, models.DO_NOTHING)
+        subject = models.ForeignKey(Subject, models.DO_NOTHING)
+
+        class Meta:
+            managed = False
+            db_table = 'teacher_subjects'
+
+        def __str__(self):
+            return f"{self.teacher} — {self.subject}"
+else:
+    # Fallback for Django < 5.2, where CompositePrimaryKey doesn't exist.
+    # Adds a synthetic surrogate id and enforces the same uniqueness via
+    # unique_together instead of a true composite PK. Swap back to the
+    # CompositePrimaryKey version once you're on Django 5.2+.
+    class TeacherSubject(models.Model):
+        id = models.BigAutoField(primary_key=True)
+        teacher = models.ForeignKey(Faculty, models.DO_NOTHING)
+        subject = models.ForeignKey(Subject, models.DO_NOTHING)
+
+        class Meta:
+            managed = False
+            db_table = 'teacher_subjects'
+            unique_together = (('teacher', 'subject'),)
+
+        def __str__(self):
+            return f"{self.teacher} — {self.subject}"
+
+
+class Users(models.Model):
+    # NOTE (flagged in QA pass): this model isn't referenced anywhere in
+    # admin.py or views.py — the admin's "Users" section actually uses
+    # Django's built-in auth.User. Confirm whether this table is still
+    # needed (e.g. synced from another auth system) or safe to remove.
+    id = models.UUIDField(primary_key=True)
+    full_name = models.CharField(max_length=100)
+    role = models.CharField(max_length=20)
+    phone = models.CharField(max_length=20, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = False
+        db_table = 'users'
+
+    def __str__(self):
+        return self.full_name

@@ -1,0 +1,425 @@
+{% extends "admin/core/dashboard_base.html" %}
+
+{% block title %}{% if instance %}Edit Receipt{% else %}Record a Payment{% endif %} — Dashboard{% endblock %}
+{% block crumb %}Payment Receipts{% endblock %}
+
+{% block extra_head %}
+<style>
+  .item-row {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr 1fr auto;
+    gap: 10px;
+    align-items: end;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .item-row:last-child { border-bottom: none; }
+  .item-row .field-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 4px;
+    display: block;
+  }
+  .item-row select, .item-row input {
+    width: 100%;
+    border: 1px solid var(--border);
+    background: white;
+    padding: 9px 10px;
+    font-size: 0.9rem;
+  }
+  .item-row input:focus, .item-row select:focus {
+    outline: none;
+    border-color: var(--brand, #830000);
+  }
+  .item-remove {
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--border);
+    background: white;
+    border-radius: 8px;
+    color: #991B1B;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .item-remove:hover { background: #FEE2E2; }
+  .calc-summary {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin-bottom: 22px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 12px 20px;
+  }
+  .calc-summary .item { display: flex; flex-direction: column; gap: 2px; }
+  .calc-summary .label { font-size: 0.72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .calc-summary .value { font-size: 1.05rem; font-weight: 700; color: var(--text); }
+  @media (max-width: 700px) {
+    .item-row { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="{% if instance %}{% url 'admin:core_studentpaymentreceipt_view' instance.pk %}{% else %}{% url 'admin:core_studentpaymentreceipt_changelist' %}{% endif %}" class="back-link">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+  {% if instance %}Back to Receipt{% else %}Back to Payment Receipts{% endif %}
+</a>
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title">{% if instance %}Edit Receipt{% else %}Record a Payment{% endif %}</h1>
+    {% if locked_student %}
+    <p class="page-sub">For {{ locked_student.full_name }}{% if instance.receipt_number %} · {{ instance.receipt_number }}{% endif %}</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="panel form-card form-card-wide">
+  {% if form.non_field_errors %}
+    {% for error in form.non_field_errors %}
+    <div class="form-error" style="margin-bottom: 16px;">{{ error }}</div>
+    {% endfor %}
+  {% endif %}
+
+  <div class="calc-summary" id="calcSummary">
+    <div class="item"><span class="label">Payable Before Discount</span><span class="value" id="calcTotal">৳0</span></div>
+    <div class="item"><span class="label">Discount</span><span class="value" id="calcDiscount">৳0</span></div>
+    <div class="item"><span class="label">Payable After Discount</span><span class="value" id="calcNet">৳0</span></div>
+  </div>
+
+  <form method="post">
+    {% csrf_token %}
+
+    <div class="form-grid">
+      {% if locked_student %}
+      {{ form.student }}
+      <div class="form-field full-width">
+        <span class="form-label">Student</span>
+        <div class="code-badge">{{ locked_student.full_name }} ({{ locked_student.student_code }})</div>
+      </div>
+      {% else %}
+      <div class="form-field full-width">
+        <label class="form-label" for="{{ form.student.id_for_label }}">Student</label>
+        {{ form.student }}
+        {% if form.student.errors %}<div class="form-error">{{ form.student.errors.0 }}</div>{% endif %}
+      </div>
+      {% endif %}
+
+      <div class="form-field">
+        <label class="form-label" for="{{ form.payment_date.id_for_label }}">Payment Date</label>
+        {{ form.payment_date }}
+        {% if form.payment_date.errors %}<div class="form-error">{{ form.payment_date.errors.0 }}</div>{% endif %}
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="{{ form.payment_method.id_for_label }}">Payment Method</label>
+        {{ form.payment_method }}
+        {% if form.payment_method.errors %}<div class="form-error">{{ form.payment_method.errors.0 }}</div>{% endif %}
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="{{ form.transaction_id.id_for_label }}">Transaction ID</label>
+        {{ form.transaction_id }}
+        <p class="form-help">{{ form.transaction_id.help_text }}</p>
+        {% if form.transaction_id.errors %}<div class="form-error">{{ form.transaction_id.errors.0 }}</div>{% endif %}
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="{{ form.total_discount.id_for_label }}">{{ form.total_discount.label }}</label>
+        {{ form.total_discount }}
+        <p class="form-help">{{ form.total_discount.help_text }}</p>
+        {% if form.total_discount.errors %}<div class="form-error">{{ form.total_discount.errors.0 }}</div>{% endif %}
+      </div>
+    </div>
+
+    <p class="form-section-label">Monthly Fee</p>
+    <div class="panel" style="padding:18px 20px; margin-bottom:20px; background:var(--surface); box-shadow:none;">
+      <div class="radio-group" style="margin-bottom:14px;">
+        <input type="radio" name="monthlyMode" value="single" id="modeSingle" checked>
+        <label for="modeSingle">Single month</label>
+        <input type="radio" name="monthlyMode" value="multiple" id="modeMultiple">
+        <label for="modeMultiple">Multiple months</label>
+      </div>
+
+      <div id="singleMonthPanel">
+        <div style="display:grid; grid-template-columns:1fr 1fr auto; gap:10px; align-items:end;">
+          <div>
+            <span class="field-label">Month</span>
+            <input type="month" id="singleMonthInput">
+          </div>
+          <div>
+            <span class="field-label">Amount (৳)</span>
+            <input type="number" id="singleMonthAmount" min="0" step="1" placeholder="e.g. 1500">
+          </div>
+          <button type="button" id="addSingleMonth" class="btn btn-accent btn-sm">Add</button>
+        </div>
+      </div>
+
+      <div id="multiMonthPanel" style="display:none;">
+        <span class="field-label">Choose the months being paid</span>
+        <div id="multiMonthChecks" style="display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 16px;"></div>
+        <div style="display:grid; grid-template-columns:1fr auto; gap:10px; align-items:end;">
+          <div>
+            <span class="field-label">Amount per month (৳)</span>
+            <input type="number" id="multiMonthAmount" min="0" step="1" placeholder="e.g. 1500">
+          </div>
+          <button type="button" id="addMultiMonths" class="btn btn-accent btn-sm">Add selected months</button>
+        </div>
+      </div>
+      <p class="form-help" style="margin-top:10px;">Every month you add here turns into its own row below, all with the same amount. You can still adjust or delete any row on its own afterwards. A discount is applied just once, to the entire receipt — refer to the Discount field above.</p>
+    </div>
+
+    <p class="form-section-label">Other fees</p>
+    <p class="form-help" style="margin-bottom:10px;">Use this for the Admission Fee, Exam Fee, or any other charge. Every row below, whether added here or with the Monthly Fee tool above, belongs to this single receipt.</p>
+
+    <div id="itemRows">
+      {% for item in existing_items %}
+      <div class="item-row">
+        <div>
+          <span class="field-label">Type</span>
+          <select name="item_type[]" class="item-type">
+            {% for value, label in item_type_choices %}
+            <option value="{{ value }}" {% if item.payment_type == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="item-month-wrap" {% if item.payment_type != "Monthly Fee" %}style="display:none;"{% endif %}>
+          <span class="field-label">Month</span>
+          <input type="month" name="item_month[]" value="{{ item.payment_month|default:''|slice:':7' }}">
+        </div>
+        <div>
+          <span class="field-label">Amount (৳)</span>
+          <input type="number" name="item_amount[]" class="item-amount" min="0" step="1" value="{{ item.amount|floatformat:0 }}">
+        </div>
+        <button type="button" class="item-remove" aria-label="Remove row">&times;</button>
+      </div>
+      {% endfor %}
+    </div>
+
+    <button type="button" id="addItemRow" class="btn btn-ghost btn-sm" style="margin-top:14px;">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>
+      Add another item
+    </button>
+
+    <div class="form-field full-width" style="margin-top:22px;">
+      <label class="form-label" for="{{ form.remarks.id_for_label }}">Remarks</label>
+      {{ form.remarks }}
+      {% if form.remarks.errors %}<div class="form-error">{{ form.remarks.errors.0 }}</div>{% endif %}
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn btn-accent">{% if instance %}Save Changes{% else %}Save Receipt{% endif %}</button>
+      <a href="{% if instance %}{% url 'admin:core_studentpaymentreceipt_view' instance.pk %}{% else %}{% url 'admin:core_studentpaymentreceipt_changelist' %}{% endif %}" class="btn btn-ghost">Cancel</a>
+    </div>
+  </form>
+</div>
+
+<template id="itemRowTemplate">
+  <div class="item-row">
+    <div>
+      <span class="field-label">Type</span>
+      <select name="item_type[]" class="item-type">
+        {% for value, label in item_type_choices %}
+        <option value="{{ value }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="item-month-wrap" style="display:none;">
+      <span class="field-label">Month</span>
+      <input type="month" name="item_month[]">
+    </div>
+    <div>
+      <span class="field-label">Amount (৳)</span>
+      <input type="number" name="item_amount[]" class="item-amount" min="0" step="1" value="0">
+    </div>
+    <button type="button" class="item-remove" aria-label="Remove row">&times;</button>
+  </div>
+</template>
+
+<script>
+(function () {
+  var rowsWrap = document.getElementById('itemRows');
+  var addBtn = document.getElementById('addItemRow');
+  var rowTemplate = document.getElementById('itemRowTemplate');
+  var discountInput = document.getElementById('{{ form.total_discount.id_for_label }}');
+
+  var totalOut = document.getElementById('calcTotal');
+  var discountOut = document.getElementById('calcDiscount');
+  var netOut = document.getElementById('calcNet');
+
+  function num(el) {
+    var v = parseFloat(el && el.value);
+    return isNaN(v) ? 0 : v;
+  }
+
+  function recalc() {
+    var total = 0;
+    rowsWrap.querySelectorAll('.item-row').forEach(function (row) {
+      total += num(row.querySelector('.item-amount'));
+    });
+    var discount = num(discountInput);
+
+    totalOut.textContent = '৳' + Math.round(total);
+    discountOut.textContent = '৳' + Math.round(discount);
+    netOut.textContent = '৳' + Math.round(total - discount);
+  }
+
+  if (discountInput) {
+    discountInput.addEventListener('input', recalc);
+  }
+
+  function wireRow(row) {
+    var typeSelect = row.querySelector('.item-type');
+    var monthWrap = row.querySelector('.item-month-wrap');
+    var removeBtn = row.querySelector('.item-remove');
+
+    function toggleMonth() {
+      monthWrap.style.display = typeSelect.value === 'Monthly Fee' ? '' : 'none';
+      if (typeSelect.value !== 'Monthly Fee') {
+        monthWrap.querySelector('input').value = '';
+      }
+    }
+    typeSelect.addEventListener('change', toggleMonth);
+    toggleMonth();
+
+    removeBtn.addEventListener('click', function () {
+      if (rowsWrap.querySelectorAll('.item-row').length > 1) {
+        row.remove();
+        recalc();
+      } else {
+        row.querySelector('.item-amount').value = 0;
+        recalc();
+      }
+    });
+
+    row.querySelector('.item-amount').addEventListener('input', recalc);
+  }
+
+  rowsWrap.querySelectorAll('.item-row').forEach(wireRow);
+
+  function addRow(type, month, amount) {
+    var clone = rowTemplate.content.cloneNode(true);
+    rowsWrap.appendChild(clone);
+    var row = rowsWrap.lastElementChild;
+    wireRow(row);
+
+    if (type) {
+      row.querySelector('.item-type').value = type;
+      row.querySelector('.item-type').dispatchEvent(new Event('change'));
+    }
+    if (month) {
+      row.querySelector('.item-month-wrap input').value = month;
+    }
+    row.querySelector('.item-amount').value = amount || 0;
+    return row;
+  }
+
+  addBtn.addEventListener('click', function () {
+    addRow(null, null, 0);
+    recalc();
+  });
+
+  if (!rowsWrap.querySelector('.item-row')) {
+    addBtn.click();
+  }
+
+  // --- Monthly Fee quick-add panel ---------------------------------
+  var modeSingle = document.getElementById('modeSingle');
+  var modeMultiple = document.getElementById('modeMultiple');
+  var singlePanel = document.getElementById('singleMonthPanel');
+  var multiPanel = document.getElementById('multiMonthPanel');
+
+  function syncMode() {
+    var multi = modeMultiple.checked;
+    singlePanel.style.display = multi ? 'none' : '';
+    multiPanel.style.display = multi ? '' : 'none';
+  }
+  modeSingle.addEventListener('change', syncMode);
+  modeMultiple.addEventListener('change', syncMode);
+  syncMode();
+
+  // Single month
+  document.getElementById('addSingleMonth').addEventListener('click', function () {
+    var monthEl = document.getElementById('singleMonthInput');
+    var amountEl = document.getElementById('singleMonthAmount');
+
+    if (!monthEl.value) {
+      monthEl.focus();
+      return;
+    }
+    if (!amountEl.value || num(amountEl) <= 0) {
+      amountEl.focus();
+      return;
+    }
+
+    addRow('Monthly Fee', monthEl.value, amountEl.value);
+    recalc();
+
+    monthEl.value = '';
+    amountEl.value = '';
+  });
+
+  // Multiple months — a checkbox per month, 3 months back to 8 months
+  // ahead of today, so past catch-up payments and ahead-of-time ones
+  // both fit without needing a huge list.
+  var multiChecks = document.getElementById('multiMonthChecks');
+  var today = new Date();
+  var monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  for (var offset = -3; offset <= 8; offset++) {
+    var d = new Date(today.getFullYear(), today.getMonth() + offset, 1);
+    var value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    var label = monthNames[d.getMonth()] + ' ' + d.getFullYear();
+
+    var wrap = document.createElement('label');
+    wrap.style.cssText = 'display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border); border-radius:999px; padding:6px 14px; font-size:0.85rem; cursor:pointer; background:white;';
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = value;
+    cb.className = 'multi-month-check';
+    wrap.appendChild(cb);
+    wrap.appendChild(document.createTextNode(label));
+    multiChecks.appendChild(wrap);
+  }
+
+  document.getElementById('addMultiMonths').addEventListener('click', function () {
+    var amountEl = document.getElementById('multiMonthAmount');
+    var checked = Array.prototype.slice.call(
+      multiChecks.querySelectorAll('.multi-month-check:checked')
+    );
+
+    if (!checked.length) return;
+    if (!amountEl.value || num(amountEl) <= 0) {
+      amountEl.focus();
+      return;
+    }
+
+    checked.forEach(function (cb) {
+      addRow('Monthly Fee', cb.value, amountEl.value);
+      cb.checked = false;
+    });
+    recalc();
+
+    amountEl.value = '';
+  });
+
+  recalc();
+
+  // Number inputs increment/decrement on scroll when focused — mildly
+  // useful on a spinner by itself, actively dangerous here since
+  // scrolling the page while the cursor happens to be over an amount
+  // field silently changes what's about to be charged. Blur the field
+  // on scroll instead, so the page just scrolls normally.
+  document.addEventListener('wheel', function (e) {
+    var active = document.activeElement;
+    if (active && active.tagName === 'INPUT' && active.type === 'number') {
+      active.blur();
+    }
+  }, { passive: true });
+})();
+</script>
+{% endblock %}

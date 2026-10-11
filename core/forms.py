@@ -1,0 +1,1389 @@
+from datetime import date
+
+from django import forms
+from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.utils import timezone
+
+from .results import grade_for
+from .models import (
+    Achievement, AdmissionApplication, AdmissionInfo, AdmissionInquiry, Batch, Class, ClassSchedule,
+    ContactMessage, Exam, ExamResult, Expense, Faculty, Gallery, GallerySection, GallerySubsection,
+    Notice, Student, StudentPayment, StudentPaymentReceipt, Subject, TeacherSalary,
+    BLOOD_GROUP_CHOICES,
+)
+
+INPUT_CLASSES = (
+    "w-full border border-ink/15 bg-white px-4 py-3 text-ink "
+    "placeholder:text-ink/40 focus:outline-none focus:border-brand "
+    "focus:ring-1 focus:ring-brand transition-colors"
+)
+
+
+class TailwindStyledFormMixin:
+    """Applies consistent input styling to every visible field."""
+
+    def _style_fields(self):
+        for name, field in self.fields.items():
+            # Radio buttons / checkboxes get their own styling (see
+            # .radio-group in dashboard_base.html) — the text-input
+            # classes would make each circle look like a stretched box.
+            if isinstance(field.widget, (forms.RadioSelect, forms.CheckboxSelectMultiple, forms.CheckboxInput)):
+                continue
+            existing = field.widget.attrs.get("class", "")
+            field.widget.attrs["class"] = (existing + " " + INPUT_CLASSES).strip()
+            if isinstance(field.widget, forms.Textarea):
+                field.widget.attrs.setdefault("rows", 4)
+
+
+class MultipleFileInput(forms.ClearableFileInput):
+    """A <input type=file multiple> widget. Paired with MultipleFileField
+    below — Django's built-in FileField only ever cleans a single upload,
+    so both pieces are needed to accept more than one file per submit."""
+
+    allow_multiple_selected = True
+
+    def __init__(self, attrs=None):
+        attrs = {**(attrs or {}), "multiple": True}
+        super().__init__(attrs)
+
+
+class MultipleFileField(forms.FileField):
+    widget = MultipleFileInput
+
+    def clean(self, data, initial=None):
+        single_file_clean = super().clean
+        if isinstance(data, (list, tuple)):
+            return [single_file_clean(d, initial) for d in data]
+        return single_file_clean(data, initial)
+
+
+class HoneypotMixin(forms.Form):
+    """
+    Adds an invisible field that only bots fill in. A human never sees
+    it (hidden via CSS in the template, not just an HTML `hidden` input,
+    since some bots skip those), so if it arrives non-empty we know the
+    submission is spam and can quietly reject it — no CAPTCHA needed for
+    this class of bot.
+
+    Usage in the template: render {{ form.website }} inside a wrapper
+    styled `class="hidden"` (see updated contact.html / admission.html).
+    """
+
+    website = forms.CharField(
+        required=False,
+        label="",
+        widget=forms.TextInput(attrs={
+            "autocomplete": "off",
+            "tabindex": "-1",
+        }),
+    )
+
+    def clean_website(self):
+        value = self.cleaned_data.get("website")
+        if value:
+            # Don't tell the bot what tripped — just fail validation.
+            raise ValidationError("Submission rejected.")
+        return value
+
+
+class AdmissionInquiryForm(TailwindStyledFormMixin, HoneypotMixin, forms.ModelForm):
+    class Meta:
+        model = AdmissionInquiry
+        fields = [
+            "student_name",
+            "student_phone",
+            "guardian_name",
+            "guardian_phone",
+            "class_obj",
+            "message",
+        ]
+        labels = {
+            "student_name": "Student's name",
+            "student_phone": "Student's phone",
+            "guardian_name": "Guardian's name",
+            "guardian_phone": "Guardian's phone",
+            "class_obj": "Class applying for",
+            "message": "Anything else you want us to be aware of",
+        }
+        widgets = {
+            "message": forms.Textarea(),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["guardian_name"].required = False
+        self.fields["guardian_phone"].required = False
+        self.fields["message"].required = False
+        self.fields["class_obj"].required = False
+        self.fields["class_obj"].empty_label = "Select a class"
+        self._style_fields()
+
+
+class ContactMessageForm(TailwindStyledFormMixin, HoneypotMixin, forms.ModelForm):
+    class Meta:
+        model = ContactMessage
+        fields = ["name", "phone", "email", "message"]
+        widgets = {
+            "message": forms.Textarea(),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["phone"].required = False
+        self.fields["email"].required = False
+        self._style_fields()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        phone = cleaned_data.get("phone")
+        email = cleaned_data.get("email")
+        # Both are individually optional, but staff need SOME way to
+        # reply — without this, a visitor can submit a message that's
+        # impossible to respond to.
+        if not phone and not email:
+            raise ValidationError(
+                "Please give a phone number or an email address so that we can respond."
+            )
+        return cleaned_data
+
+
+class StudentLookupForm(TailwindStyledFormMixin, forms.Form):
+    student_code = forms.CharField(
+        label="Student ID",
+        max_length=30,
+        widget=forms.TextInput(attrs={"placeholder": "e.g. STU-2026-014"}),
+    )
+    student_phone = forms.CharField(
+        label="Phone Number",
+        max_length=20,
+        widget=forms.TextInput(attrs={"placeholder": "The phone number on file"}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._style_fields()
+
+
+class ClassForm(TailwindStyledFormMixin, forms.ModelForm):
+    """Used by admin.ClassAdmin's custom add/change views."""
+
+    class Meta:
+        model = Class
+        fields = ["class_name", "academic_year"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._style_fields()
+
+
+class BatchForm(TailwindStyledFormMixin, forms.ModelForm):
+    """Used by admin.BatchAdmin's custom add/change views."""
+
+    class Meta:
+        model = Batch
+        fields = ["class_obj", "batch_name", "room", "start_time", "end_time"]
+        widgets = {
+            "start_time": forms.TimeInput(attrs={"type": "time"}),
+            "end_time": forms.TimeInput(attrs={"type": "time"}),
+        }
+
+    def __init__(self, *args, lock_class=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["class_obj"].label = "Class"
+        # When arriving from a specific class's "Add a batch" link, the
+        # class is already known — lock it as a hidden field instead of
+        # making staff pick it again from the dropdown.
+        if lock_class is not None:
+            self.fields["class_obj"].initial = lock_class.pk
+            self.fields["class_obj"].widget = forms.HiddenInput()
+        self._style_fields()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        start_time = cleaned_data.get("start_time")
+        end_time = cleaned_data.get("end_time")
+        # The database enforces end_time > start_time via a check
+        # constraint (valid_batch_time) — validate it here too so staff
+        # get a clear inline error instead of a 500 from the DB.
+        if start_time and end_time and end_time <= start_time:
+            raise ValidationError("The end time has to come after the start time.")
+        return cleaned_data
+
+
+class FacultyForm(TailwindStyledFormMixin, forms.ModelForm):
+    """Used by admin.FacultyAdmin's custom add/change views."""
+
+    photo_upload = forms.ImageField(
+        required=False,
+        label="Upload Photo",
+        help_text="A file you upload takes the place of any Photo URL entered below.",
+    )
+
+    class Meta:
+        model = Faculty
+        fields = ["full_name", "photo_url", "designation", "phone", "email", "joining_date"]
+        widgets = {
+            "joining_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["joining_date"].input_formats = ["%Y-%m-%d"]
+        self.fields["designation"].required = False
+        self.fields["phone"].required = False
+        self.fields["email"].required = False
+        self.fields["photo_url"].required = False
+        self.fields["photo_url"].label = "Photo URL (alternatively, paste a link)"
+        self.fields["photo_url"].widget = forms.TextInput(attrs={"placeholder": "https://..."})
+        self.order_fields(
+            ["full_name", "photo_upload", "photo_url", "designation", "phone", "email", "joining_date"]
+        )
+        self._style_fields()
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        uploaded = self.cleaned_data.get("photo_upload")
+        if uploaded:
+            from django.core.files.storage import default_storage
+
+            path = default_storage.save(f"faculty/{uploaded.name}", uploaded)
+            instance.photo_url = default_storage.url(path)
+        if commit:
+            instance.save()
+        return instance
+
+
+class SubjectForm(TailwindStyledFormMixin, forms.ModelForm):
+    """
+    Used by admin.SubjectAdmin's custom add/change views.
+
+    subject_code is deliberately excluded — it's generated automatically
+    from subject_name + class_obj (see admin._generate_subject_code) and
+    never typed in by staff.
+    """
+
+    class Meta:
+        model = Subject
+        fields = ["class_obj", "subject_name"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["class_obj"].label = "Class"
+        self.fields["class_obj"].empty_label = "Select a class"
+        self._style_fields()
+
+
+class StudentForm(TailwindStyledFormMixin, forms.ModelForm):
+    """
+    Used by admin.StudentAdmin's custom add/change views.
+
+    student_code is deliberately excluded — it's generated automatically
+    (see admin._generate_student_code) and never typed in by staff.
+    """
+
+    GENDER_CHOICES = [
+        ("Male", "Male"),
+        ("Female", "Female"),
+        ("Other", "Other"),
+    ]
+
+    gender = forms.ChoiceField(
+        choices=GENDER_CHOICES,
+        required=False,
+        widget=forms.RadioSelect,
+    )
+
+    photo_upload = forms.ImageField(
+        required=False,
+        label="Upload Photo",
+        help_text="Optional. A file you upload takes the place of any Photo URL entered below.",
+    )
+
+    REQUIRED_ADMISSION_FIELDS = (
+        "date_of_birth", "admission_date", "institution_name", "blood_group",
+    )
+
+    class Meta:
+        model = Student
+        fields = [
+            "class_obj",
+            "batch",
+            "group",
+            "full_name",
+            "photo_url",
+            "gender",
+            "date_of_birth",
+            "blood_group",
+            "institution_name",
+            "student_phone",
+            "father_name",
+            "father_phone",
+            "mother_name",
+            "mother_phone",
+            "address",
+            "admission_date",
+            "reference",
+            "status",
+        ]
+        widgets = {
+            # type="date" gives every browser's native date picker instead
+            # of a free-text box that silently rejects the wrong format —
+            # this was the root cause of the earlier DOB entry issues.
+            "date_of_birth": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+            "admission_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+            "address": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Accept the ISO format the date input sends back, regardless of
+        # server locale.
+        self.fields["date_of_birth"].input_formats = ["%Y-%m-%d"]
+        self.fields["admission_date"].input_formats = ["%Y-%m-%d"]
+
+        self.fields["class_obj"].label = "Class"
+        self.fields["class_obj"].empty_label = "Select a class"
+        self.fields["batch"].required = False
+        self.fields["batch"].empty_label = "Choose a batch (optional)"
+        self.fields["group"].required = False
+        self.fields["group"].label = "Group / Year"
+        self.fields["group"].widget = forms.TextInput(
+            attrs={"placeholder": "e.g. Science, Business Studies, Humanities, or Honours 1st Year"}
+        )
+        self.fields["photo_url"].required = False
+        self.fields["photo_url"].label = "Photo URL (alternatively, paste a link)"
+        self.fields["photo_url"].widget = forms.TextInput(attrs={"placeholder": "https://..."})
+        for name in ("student_phone", "father_name", "father_phone",
+                     "mother_name", "mother_phone", "address"):
+            self.fields[name].required = False
+
+        self.fields["institution_name"].label = "School / College name"
+        self.fields["institution_name"].widget = forms.TextInput(
+            attrs={"placeholder": "Current school or college of the student"}
+        )
+        self.fields["blood_group"].label = "Blood group"
+        self.fields["blood_group"].choices = [("", "Select blood group")] + list(Student.BLOOD_GROUPS)
+        self.fields["reference"].label = "Reference (optional)"
+        self.fields["reference"].widget = forms.TextInput(
+            attrs={"placeholder": "Who referred this student, if anyone"}
+        )
+        self.fields["reference"].required = False
+
+        # Required on every new admission. When editing an older record
+        # that never had one of these filled in, don't block the save
+        # (e.g. just to mark the student Left) — only insist on it if it
+        # was already there, so it can't be blanked out afterwards.
+        for name in self.REQUIRED_ADMISSION_FIELDS:
+            had_value = bool(self.instance.pk and getattr(self.instance, name))
+            self.fields[name].required = (not self.instance.pk) or had_value
+
+        self._style_fields()
+
+    def clean_date_of_birth(self):
+        dob = self.cleaned_data.get("date_of_birth")
+        if dob:
+            if dob > date.today():
+                raise ValidationError("The date of birth cannot be in the future.")
+            age_years = (date.today() - dob).days / 365.25
+            if age_years > 100:
+                raise ValidationError("Please verify this date; it is more than 100 years in the past.")
+        return dob
+
+    def clean_admission_date(self):
+        admitted = self.cleaned_data.get("admission_date")
+        if admitted and admitted > date.today():
+            raise ValidationError("The admission date cannot be in the future.")
+        return admitted
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        uploaded = self.cleaned_data.get("photo_upload")
+        if uploaded:
+            from django.core.files.storage import default_storage
+
+            path = default_storage.save(f"students/{uploaded.name}", uploaded)
+            instance.photo_url = default_storage.url(path)
+        if commit:
+            instance.save()
+        return instance
+
+
+class StudentPaymentForm(TailwindStyledFormMixin, forms.ModelForm):
+    """Used by admin.StudentPaymentAdmin's custom add/change views."""
+
+    class Meta:
+        model = StudentPayment
+        fields = [
+            "student",
+            "payment_type",
+            "amount",
+            "payment_date",
+            "payment_month",
+            "remarks",
+        ]
+        widgets = {
+            # type="date"/"month" give native pickers instead of a
+            # free-text box that silently rejects the wrong format —
+            # same reasoning as StudentForm's date fields.
+            "payment_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+            "payment_month": forms.DateInput(attrs={"type": "month"}, format="%Y-%m"),
+            "remarks": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, lock_student=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Accept back the ISO formats the date/month inputs send, regardless
+        # of server locale.
+        self.fields["payment_date"].input_formats = ["%Y-%m-%d"]
+        self.fields["payment_month"].input_formats = ["%Y-%m", "%Y-%m-%d"]
+
+        self.fields["student"].empty_label = "Select a student"
+        self.fields["payment_month"].required = False
+        self.fields["payment_month"].help_text = "Required only for Monthly Fee payments."
+        self.fields["remarks"].required = False
+
+        # When arriving from a specific student's "Record a payment" link
+        # (or the Monthly Fee Status report), the student is already
+        # known — lock it as a hidden field instead of making staff pick
+        # them again from the dropdown.
+        if lock_student is not None:
+            self.fields["student"].initial = lock_student.pk
+            self.fields["student"].widget = forms.HiddenInput()
+
+        self._style_fields()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        payment_type = cleaned_data.get("payment_type")
+        payment_month = cleaned_data.get("payment_month")
+        # Monthly Fee is the only recurring charge, and the Monthly Fee
+        # Status report groups payments by payment_month — without it, a
+        # monthly payment would silently never show up as "paid" there.
+        if payment_type == "Monthly Fee" and not payment_month:
+            raise ValidationError("Please choose the month this payment is for.")
+        return cleaned_data
+
+
+class StudentPaymentReceiptForm(TailwindStyledFormMixin, forms.ModelForm):
+    """Used by admin.StudentPaymentReceiptAdmin's custom add/change views.
+
+    Only the receipt header lives here — student, date, method, etc.
+    The line items (fee type, month, amount, discount — one row per
+    item, any number of rows) are built from raw POST data in
+    admin._paymentreceipt_form_view, the same way GallerySubsection's
+    per-image descriptions are, since a fixed ModelForm field can't
+    represent "however many rows the person adds."
+    """
+
+    class Meta:
+        model = StudentPaymentReceipt
+        fields = [
+            "student", "payment_date", "payment_method", "transaction_id",
+            "total_discount", "remarks",
+        ]
+        widgets = {
+            "payment_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+            "remarks": forms.Textarea(attrs={"rows": 2}),
+        }
+
+    def __init__(self, *args, lock_student=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["payment_date"].input_formats = ["%Y-%m-%d"]
+        self.fields["student"].empty_label = "Select a student"
+        self.fields["transaction_id"].required = False
+        self.fields["transaction_id"].help_text = "Bank or mobile-wallet transaction reference, where relevant."
+        self.fields["remarks"].required = False
+
+        self.fields["total_discount"].required = False
+        self.fields["total_discount"].label = "Discount (৳)"
+        self.fields["total_discount"].help_text = "A single discount applies to the entire receipt rather than each item."
+        self.fields["total_discount"].widget.attrs["step"] = "1"
+
+        if lock_student is not None:
+            self.fields["student"].initial = lock_student.pk
+            self.fields["student"].widget = forms.HiddenInput()
+
+        self._style_fields()
+
+    def clean_total_discount(self):
+        return round(self.cleaned_data.get("total_discount") or 0)
+
+
+class TeacherSalaryForm(TailwindStyledFormMixin, forms.ModelForm):
+    """Used by admin.TeacherSalaryAdmin's custom add/change views.
+
+    Deliberately simple: every teacher is paid purely by the class, plus
+    an optional bonus. No fixed gross salary, no deductions, no
+    attendance tracking. net_salary, due_amount, and status are all
+    computed here in save() rather than typed in. receipt_number is
+    generated in admin.py (same pattern as Student.student_code).
+    """
+
+    class Meta:
+        model = TeacherSalary
+        fields = [
+            "teacher", "salary_month",
+            "classes_taken", "rate_per_class", "bonus",
+            "payment_method", "paid_amount", "transaction_id",
+            "payment_date", "remarks",
+        ]
+        widgets = {
+            "salary_month": forms.DateInput(attrs={"type": "month"}, format="%Y-%m"),
+            "payment_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+            "remarks": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, lock_teacher=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["salary_month"].input_formats = ["%Y-%m", "%Y-%m-%d"]
+        self.fields["payment_date"].input_formats = ["%Y-%m-%d"]
+
+        self.fields["teacher"].empty_label = "Choose a faculty member"
+        self.fields["payment_date"].required = False
+        self.fields["payment_date"].help_text = "Fill this in after at least part of the salary has been paid."
+        self.fields["remarks"].required = False
+        self.fields["transaction_id"].required = False
+        self.fields["transaction_id"].help_text = "Bank or mobile-wallet transaction reference, where relevant."
+
+        self.fields["bonus"].required = False
+        self.fields["paid_amount"].required = False
+
+        # Whole numbers only, everywhere money or a class count is
+        # entered — no cents, no fractional classes. The DB columns stay
+        # DecimalField (a whole number fits fine in numeric(10,2)); this
+        # just stops decimals going in at the form level. Overriding
+        # `step` here matters because DecimalField's default widget step
+        # is "0.01", which is what makes browsers show a cents spinner.
+        for name in ("rate_per_class", "bonus", "paid_amount"):
+            self.fields[name].widget.attrs["step"] = "1"
+
+        self.fields["classes_taken"].required = False
+        self.fields["classes_taken"].label = "Classes Taken"
+        self.fields["classes_taken"].widget.attrs.setdefault("min", 0)
+        self.fields["rate_per_class"].label = "Rate per Class (৳)"
+        if not self.instance.pk:
+            self.fields["rate_per_class"].initial = settings.DEFAULT_RATE_PER_CLASS
+
+        # Arriving from a specific faculty member's "Record Salary" link
+        # (or the Monthly Salary Status report), the teacher is already
+        # known — lock it as a hidden field instead of making staff pick
+        # them again from the dropdown.
+        if lock_teacher is not None:
+            self.fields["teacher"].initial = lock_teacher.pk
+            self.fields["teacher"].widget = forms.HiddenInput()
+
+        self._style_fields()
+
+    # required=False above (an admin shouldn't have to type "0" just to
+    # leave a field out), but the DB columns are NOT NULL with default=0
+    # — an empty submission otherwise becomes None here and crashes
+    # instance.save() with a raw IntegrityError instead of a clean
+    # validation message. Every one of these also gets rounded to a
+    # whole number — no cents, no fractional classes, ever.
+    def clean_bonus(self):
+        return round(self.cleaned_data.get("bonus") or 0)
+
+    def clean_paid_amount(self):
+        return round(self.cleaned_data.get("paid_amount") or 0)
+
+    def clean_classes_taken(self):
+        return round(self.cleaned_data.get("classes_taken") or 0)
+
+    def clean_rate_per_class(self):
+        return round(self.cleaned_data.get("rate_per_class") or 0)
+
+    def clean(self):
+        cleaned_data = super().clean()
+        teacher = cleaned_data.get("teacher")
+        salary_month = cleaned_data.get("salary_month")
+
+        # Mirrors the DB's unique_together(teacher, salary_month) with a
+        # clear inline message instead of a raw IntegrityError.
+        if teacher and salary_month:
+            clash = TeacherSalary.objects.filter(teacher=teacher, salary_month=salary_month)
+            if self.instance.pk:
+                clash = clash.exclude(pk=self.instance.pk)
+            if clash.exists():
+                raise ValidationError(
+                    f"A salary record for {teacher.full_name} already exists in "
+                    f"{salary_month:%B %Y}."
+                )
+
+        classes_taken = cleaned_data.get("classes_taken") or 0
+        rate_per_class = cleaned_data.get("rate_per_class") or 0
+        bonus = cleaned_data.get("bonus") or 0
+        paid_amount = cleaned_data.get("paid_amount") or 0
+
+        net_salary = (classes_taken * rate_per_class) + bonus
+
+        if paid_amount > net_salary:
+            raise ValidationError(
+                f"The paid amount (৳{paid_amount}) cannot be higher than the net salary (৳{net_salary})."
+            )
+
+        return cleaned_data
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+
+        instance.class_based_pay = (instance.classes_taken or 0) * (instance.rate_per_class or 0)
+        instance.net_salary = instance.class_based_pay + (instance.bonus or 0)
+        instance.due_amount = max(instance.net_salary - (instance.paid_amount or 0), 0)
+
+        if instance.net_salary > 0 and instance.due_amount <= 0:
+            instance.status = "Paid"
+        elif instance.paid_amount and instance.paid_amount > 0:
+            instance.status = "Partial"
+        else:
+            instance.status = "Pending"
+
+        # No fixed salary, no deductions of any kind in this simplified
+        # model — keep the now-unused columns at 0 rather than leaving
+        # them with stale values from before this change.
+        instance.gross_salary = 0
+        instance.deduction = 0
+        instance.attendance_deduction = 0
+        instance.present_days = 0
+        instance.absent_days = 0
+        instance.late_days = 0
+
+        # Keep the legacy flat `amount` column in sync for anything that
+        # might still read it, without exposing it in the form.
+        instance.amount = instance.net_salary
+
+        if commit:
+            instance.save()
+        return instance
+
+
+class ExamForm(TailwindStyledFormMixin, forms.ModelForm):
+    """Used by admin.ExamAdmin's custom add/change views."""
+
+    class Meta:
+        model = Exam
+        fields = ["class_obj", "exam_name", "exam_date", "full_marks"]
+        widgets = {
+            "exam_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["exam_date"].input_formats = ["%Y-%m-%d"]
+        self.fields["full_marks"].label = "Full marks (per subject)"
+        self.fields["full_marks"].help_text = (
+            "The total each subject is marked out of, e.g. 100. Grades are calculated from this value."
+        )
+        self.fields["full_marks"].widget.attrs.update({"min": "1", "max": "999", "step": "any"})
+        self.fields["class_obj"].label = "Class"
+        self.fields["class_obj"].empty_label = "Select a class"
+        self._style_fields()
+
+
+class ExamResultForm(TailwindStyledFormMixin, forms.ModelForm):
+    """Used by admin.ExamResultAdmin's custom add/change views."""
+
+    class Meta:
+        model = ExamResult
+        fields = ["exam", "student", "subject", "marks", "grade"]
+
+    def __init__(self, *args, lock_exam=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["exam"].empty_label = "Select an exam"
+        self.fields["student"].empty_label = "Select a student"
+        self.fields["subject"].empty_label = "Select a subject"
+        self.fields["grade"].required = False
+        self.fields["grade"].label = "Grade (optional)"
+        self.fields["grade"].help_text = (
+            "Leave empty and it is calculated automatically from the marks."
+        )
+
+        # Arriving from a specific exam's "Add Result" link — the exam
+        # (and therefore its class) is already known. Lock it as a hidden
+        # field and narrow Student/Subject to that class, same reasoning
+        # as ClassScheduleForm's lock_class.
+        active_exam = lock_exam or (self.instance.exam if self.instance.pk else None)
+        if lock_exam is not None:
+            self.fields["exam"].initial = lock_exam.pk
+            self.fields["exam"].widget = forms.HiddenInput()
+        if active_exam is not None:
+            self.fields["student"].queryset = Student.objects.filter(
+                class_obj=active_exam.class_obj_id
+            ).order_by("full_name")
+            self.fields["subject"].queryset = Subject.objects.filter(
+                class_obj=active_exam.class_obj_id
+            ).order_by("subject_name")
+
+        self._style_fields()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        exam = cleaned_data.get("exam")
+        student = cleaned_data.get("student")
+        subject = cleaned_data.get("subject")
+
+        # Mirrors the DB's unique_together(exam, student, subject) with a
+        # clear inline message instead of a raw IntegrityError, and makes
+        # sure the student/subject picked actually belong to the exam's
+        # class (matters if the queryset filtering above was bypassed,
+        # e.g. a stale form re-submitted after the exam's class changed).
+        if exam and student and student.class_obj_id != exam.class_obj_id:
+            raise ValidationError(
+                f"{student.full_name} is not enrolled in {exam.class_obj.class_name}, "
+                f"which is the class for this exam."
+            )
+        if exam and subject and subject.class_obj_id != exam.class_obj_id:
+            raise ValidationError(
+                f"{subject.subject_name} is not part of {exam.class_obj.class_name}."
+            )
+        marks = cleaned_data.get("marks")
+        if exam and marks is not None and marks > exam.full_marks:
+            self.add_error(
+                "marks",
+                f"Marks cannot exceed the exam's full marks ({exam.full_marks:g}).",
+            )
+        elif exam and marks is not None:
+            # Grade: keep one typed in by hand, otherwise work it out. If
+            # the marks were edited but the grade box was left as it was,
+            # the old (auto) grade is stale, so recalculate that too.
+            grade = (cleaned_data.get("grade") or "").strip()
+            grade_untouched = "grade" not in self.changed_data
+            if not grade or (grade_untouched and "marks" in self.changed_data):
+                grade = grade_for(marks, exam.full_marks)[0]
+            cleaned_data["grade"] = grade
+
+        if exam and student and subject:
+            clash = ExamResult.objects.filter(exam=exam, student=student, subject=subject)
+            if self.instance.pk:
+                clash = clash.exclude(pk=self.instance.pk)
+            if clash.exists():
+                raise ValidationError(
+                    f"A {subject.subject_name} result for {student.full_name} "
+                    f"is already recorded for this exam."
+                )
+        return cleaned_data
+
+
+class ClassScheduleForm(TailwindStyledFormMixin, forms.ModelForm):
+    """Used by admin.ClassScheduleAdmin's custom add/change views."""
+
+    class Meta:
+        model = ClassSchedule
+        fields = [
+            "class_obj",
+            "day_of_week",
+            "subject",
+            "batch",
+            "room",
+            "teacher",
+            "start_time",
+            "end_time",
+            "status",
+            "notes",
+        ]
+        widgets = {
+            "start_time": forms.TimeInput(attrs={"type": "time"}),
+            "end_time": forms.TimeInput(attrs={"type": "time"}),
+            "notes": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, lock_batch=None, lock_class=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["class_obj"].label = "Class"
+        self.fields["class_obj"].empty_label = "Select a class"
+        self.fields["batch"].label = "Batch"
+        self.fields["teacher"].label = "Faculty"
+        self.fields["room"].required = False
+        self.fields["notes"].required = False
+
+        # When arriving from a specific batch's "Add a class" link, the
+        # batch (and therefore its class) is already known — lock both
+        # as hidden fields instead of making staff pick them again.
+        if lock_batch is not None:
+            self.fields["batch"].initial = lock_batch.pk
+            self.fields["batch"].widget = forms.HiddenInput()
+            self.fields["class_obj"].initial = lock_batch.class_obj_id
+            self.fields["class_obj"].widget = forms.HiddenInput()
+        elif lock_class is not None:
+            # Arriving from a specific class's page — class is known,
+            # but batch still needs picking.
+            self.fields["class_obj"].initial = lock_class.pk
+            self.fields["class_obj"].widget = forms.HiddenInput()
+
+        self._style_fields()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        start_time = cleaned_data.get("start_time")
+        end_time = cleaned_data.get("end_time")
+        # The database enforces end_time > start_time via a check
+        # constraint (valid_class_schedule_time) — validate it here too
+        # so staff get a clear inline error instead of a 500 from the DB.
+        if start_time and end_time and end_time <= start_time:
+            raise ValidationError("The end time has to come after the start time.")
+
+        class_obj = cleaned_data.get("class_obj")
+        batch = cleaned_data.get("batch")
+        subject = cleaned_data.get("subject")
+
+        # Class is now the source of truth staff pick first — make sure
+        # the Batch and Subject chosen actually belong to it.
+        if class_obj and batch and batch.class_obj_id != class_obj.id:
+            raise ValidationError(
+                f"{batch.batch_name} belongs to {batch.class_obj.class_name}, "
+                f"not {class_obj.class_name}."
+            )
+        if class_obj and subject and subject.class_obj_id != class_obj.id:
+            raise ValidationError(
+                f"{subject.subject_name} belongs to {subject.class_obj.class_name}, "
+                f"not {class_obj.class_name}."
+            )
+        return cleaned_data
+
+
+class NoticeForm(TailwindStyledFormMixin, forms.ModelForm):
+    """Used by admin.NoticeAdmin's custom add/change views."""
+
+    image_upload = forms.ImageField(
+        required=False,
+        label="Upload Image",
+        help_text="Optional. A file you upload takes the place of any Image URL entered below.",
+    )
+
+    class Meta:
+        model = Notice
+        fields = ["title", "description", "image_url", "published_date", "is_published"]
+        widgets = {
+            "description": forms.Textarea(attrs={"rows": 5}),
+            "published_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["published_date"].input_formats = ["%Y-%m-%d"]
+        self.fields["is_published"].required = False
+        self.fields["image_url"].required = False
+        self.fields["image_url"].label = "Image URL (alternatively, paste a link)"
+        self.fields["image_url"].widget = forms.TextInput(attrs={"placeholder": "https://..."})
+        self.order_fields(
+            ["title", "description", "image_upload", "image_url", "published_date", "is_published"]
+        )
+        self._style_fields()
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        uploaded = self.cleaned_data.get("image_upload")
+        if uploaded:
+            from django.core.files.storage import default_storage
+
+            path = default_storage.save(f"notices/{uploaded.name}", uploaded)
+            instance.image_url = default_storage.url(path)
+        if commit:
+            instance.save()
+        return instance
+
+
+class AchievementForm(TailwindStyledFormMixin, forms.ModelForm):
+    """Used by admin.AchievementAdmin's custom add/change views."""
+
+    images_upload = MultipleFileField(
+        required=False,
+        label="Add Images",
+        help_text="Pick one or several images (hold Ctrl/Cmd to select multiple). New uploads are added to the gallery and do not overwrite existing images.",
+    )
+    remove_images = forms.MultipleChoiceField(
+        required=False,
+        label="Existing images",
+        widget=forms.CheckboxSelectMultiple,
+        help_text="Tick an image and save to take it out of the gallery.",
+    )
+
+    class Meta:
+        model = Achievement
+        fields = ["title", "description", "achievement_date", "is_published"]
+        widgets = {
+            "description": forms.Textarea(attrs={"rows": 5}),
+            "achievement_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["achievement_date"].input_formats = ["%Y-%m-%d"]
+        self.fields["description"].required = False
+        self.fields["is_published"].required = False
+
+        existing_images = []
+        if self.instance and self.instance.pk:
+            existing_images = list(self.instance.image_urls or [])
+            # Fold in a legacy single `image_url` from before the gallery
+            # existed, so old achievements can still have it removed here.
+            if self.instance.image_url and self.instance.image_url not in existing_images:
+                existing_images.append(self.instance.image_url)
+        self.fields["remove_images"].choices = [(url, url) for url in existing_images]
+
+        self.order_fields(
+            ["title", "description", "achievement_date", "is_published", "remove_images", "images_upload"]
+        )
+        self._style_fields()
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+
+        current = list(instance.image_urls or [])
+        if instance.image_url and instance.image_url not in current:
+            current.append(instance.image_url)
+
+        removed = set(self.cleaned_data.get("remove_images") or [])
+        if removed:
+            current = [url for url in current if url not in removed]
+
+        uploaded = self.cleaned_data.get("images_upload") or []
+        if uploaded:
+            from django.core.files.storage import default_storage
+
+            for f in uploaded:
+                path = default_storage.save(f"achievements/{f.name}", f)
+                current.append(default_storage.url(path))
+
+        instance.image_urls = current
+        # Keep the legacy field in sync (harmless, and avoids stale/duplicate
+        # data if anything still reads image_url directly).
+        instance.image_url = current[0] if current else None
+
+        if commit:
+            instance.save()
+        return instance
+
+
+class GalleryForm(TailwindStyledFormMixin, forms.ModelForm):
+    """Used by admin.GalleryAdmin's custom add/change views."""
+
+    image_upload = forms.ImageField(
+        required=False,
+        label="Upload Image",
+        help_text="A file you upload takes the place of any Image URL entered below.",
+    )
+
+    class Meta:
+        model = Gallery
+        fields = ["title", "image_url", "category", "description", "is_published"]
+        widgets = {
+            "description": forms.Textarea(attrs={"rows": 4}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["title"].required = False
+        self.fields["category"].required = False
+        self.fields["description"].required = False
+        self.fields["image_url"].required = False
+        self.fields["image_url"].label = "Image URL (alternatively, paste a link)"
+        self.fields["image_url"].widget = forms.TextInput(attrs={"placeholder": "https://..."})
+        self.fields["is_published"].required = False
+        self.order_fields(
+            ["title", "image_upload", "image_url", "category", "description", "is_published"]
+        )
+        self._style_fields()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        # The gallery table itself doesn't allow a blank image_url, so
+        # unlike Achievement, this one genuinely needs either an upload
+        # or a pasted link — not just one field marked required.
+        if not cleaned_data.get("image_upload") and not cleaned_data.get("image_url"):
+            raise ValidationError("Please upload an image or paste an image URL.")
+        return cleaned_data
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        uploaded = self.cleaned_data.get("image_upload")
+        if uploaded:
+            from django.core.files.storage import default_storage
+
+            path = default_storage.save(f"gallery/{uploaded.name}", uploaded)
+            instance.image_url = default_storage.url(path)
+        if commit:
+            instance.save()
+        return instance
+
+
+class GallerySectionForm(TailwindStyledFormMixin, forms.ModelForm):
+    """Used by admin.GallerySectionAdmin's custom add/change views."""
+
+    class Meta:
+        model = GallerySection
+        fields = ["title", "description", "sort_order", "is_published"]
+        widgets = {
+            "description": forms.Textarea(attrs={"rows": 4}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["description"].required = False
+        self.fields["is_published"].required = False
+        self.fields["sort_order"].required = False
+        self.fields["sort_order"].help_text = (
+            "Smaller numbers appear first on the public Gallery page. Keep it at 0 if the order is unimportant."
+        )
+        self._style_fields()
+
+
+class GallerySubsectionForm(TailwindStyledFormMixin, forms.ModelForm):
+    """Used by admin.GallerySubsectionAdmin's custom add/change views.
+
+    Editing existing images (per-image description, removal) is handled
+    directly in admin._subsection_form_view from raw POST data, since the
+    number of images varies per subsection — a fixed ModelForm field can't
+    represent that. This form only covers the subsection's own fields plus
+    new uploads.
+    """
+
+    images_upload = MultipleFileField(
+        required=False,
+        label="Add Images",
+        help_text="Pick one or several images (hold Ctrl/Cmd to select multiple). New uploads are placed in the gallery after the existing images.",
+    )
+
+    class Meta:
+        model = GallerySubsection
+        fields = ["section", "title", "description", "sort_order", "is_published"]
+        widgets = {
+            "description": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["section"].queryset = GallerySection.objects.all().order_by("sort_order", "title")
+        self.fields["section"].empty_label = None
+        self.fields["description"].required = False
+        self.fields["is_published"].required = False
+        self.fields["sort_order"].required = False
+        self.order_fields(
+            ["section", "title", "description", "sort_order", "is_published", "images_upload"]
+        )
+        self._style_fields()
+
+
+class AdmissionInfoForm(TailwindStyledFormMixin, forms.ModelForm):
+    """Used by admin.AdmissionInfoAdmin's custom add/change views."""
+
+    image_upload = forms.ImageField(
+        required=False,
+        label="Upload Image",
+        help_text="Optional. A file you upload takes the place of any Image URL entered below.",
+    )
+
+    class Meta:
+        model = AdmissionInfo
+        fields = ["title", "description", "image_url", "admission_fee", "monthly_fee", "duration", "is_active"]
+        widgets = {
+            "description": forms.Textarea(attrs={"rows": 5}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["description"].required = False
+        self.fields["admission_fee"].required = False
+        self.fields["monthly_fee"].required = False
+        self.fields["duration"].required = False
+        self.fields["is_active"].required = False
+        self.fields["image_url"].required = False
+        self.fields["image_url"].label = "Image URL (alternatively, paste a link)"
+        self.fields["image_url"].widget = forms.TextInput(attrs={"placeholder": "https://..."})
+        self.order_fields(
+            ["title", "description", "image_upload", "image_url", "admission_fee", "monthly_fee", "duration", "is_active"]
+        )
+        self._style_fields()
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        uploaded = self.cleaned_data.get("image_upload")
+        if uploaded:
+            from django.core.files.storage import default_storage
+
+            path = default_storage.save(f"admission/{uploaded.name}", uploaded)
+            instance.image_url = default_storage.url(path)
+        if commit:
+            instance.save()
+        return instance
+
+
+class AdmissionInquiryAdminForm(TailwindStyledFormMixin, forms.ModelForm):
+    """
+    Used by admin.AdmissionInquiryAdmin's custom add/change views.
+
+    This is deliberately separate from AdmissionInquiryForm (the public
+    admission page's form): that one has the honeypot and no status
+    field, since visitors don't set their own inquiry status; this one
+    is for staff triaging inquiries from the dashboard.
+    """
+
+    class Meta:
+        model = AdmissionInquiry
+        fields = [
+            "student_name",
+            "student_phone",
+            "guardian_name",
+            "guardian_phone",
+            "class_obj",
+            "message",
+            "status",
+        ]
+        labels = {
+            "class_obj": "Class applying for",
+        }
+        widgets = {
+            "message": forms.Textarea(attrs={"rows": 4}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["guardian_name"].required = False
+        self.fields["guardian_phone"].required = False
+        self.fields["message"].required = False
+        self.fields["class_obj"].required = False
+        self.fields["class_obj"].empty_label = "Select a class"
+        self._style_fields()
+
+
+class ContactMessageAdminForm(TailwindStyledFormMixin, forms.ModelForm):
+    """
+    Used by admin.ContactMessageAdmin's custom add/change views.
+
+    Separate from ContactMessageForm (the public contact page's form)
+    for the same reason as AdmissionInquiryAdminForm — no honeypot, but
+    it does have a status field for staff to update.
+    """
+
+    class Meta:
+        model = ContactMessage
+        fields = ["name", "phone", "email", "message", "status"]
+        widgets = {
+            "message": forms.Textarea(attrs={"rows": 4}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["phone"].required = False
+        self.fields["email"].required = False
+        self._style_fields()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        phone = cleaned_data.get("phone")
+        email = cleaned_data.get("email")
+        # Same rule as the public-facing form — staff need some way to
+        # reply, so don't let both be cleared out.
+        if not phone and not email:
+            raise ValidationError(
+                "Please supply a phone number or an email address so we have a way to reply."
+            )
+        return cleaned_data
+
+
+class ExpenseForm(TailwindStyledFormMixin, forms.ModelForm):
+    """Used by admin.ExpenseAdmin's custom add/change views."""
+
+    class Meta:
+        model = Expense
+        fields = ["title", "category", "amount", "expense_date", "payment_method", "remarks"]
+        widgets = {
+            "expense_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+            "remarks": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["expense_date"].input_formats = ["%Y-%m-%d"]
+        self.fields["remarks"].required = False
+        self.fields["title"].label = "What was it spent on?"
+        self.fields["title"].widget.attrs.setdefault("placeholder", "e.g. Office rent, Whiteboard markers")
+        self.fields["amount"].label = "Amount (৳)"
+        # Whole taka only, same as receipts and salaries.
+        self.fields["amount"].widget.attrs["step"] = "1"
+        self.fields["amount"].widget.attrs["min"] = "1"
+        if not self.instance.pk:
+            self.fields["expense_date"].initial = timezone.localdate()
+        self._style_fields()
+
+    def clean_amount(self):
+        amount = round(self.cleaned_data.get("amount") or 0)
+        if amount <= 0:
+            raise ValidationError("Please enter an amount above ৳0.")
+        return amount
+
+    def clean_expense_date(self):
+        spent_on = self.cleaned_data.get("expense_date")
+        if spent_on and spent_on > timezone.localdate():
+            raise ValidationError("The expense date cannot be in the future.")
+        return spent_on
+
+
+def _validate_phone(value, label="phone number"):
+    """Loose check — people type 01XXXXXXXXX, +8801XXXXXXXXX, with spaces
+    or dashes. Just make sure it's plausibly a phone number."""
+    digits = "".join(ch for ch in (value or "") if ch.isdigit())
+    allowed = set("0123456789+-() ")
+    if not set(value or "") <= allowed or not (10 <= len(digits) <= 15):
+        raise ValidationError(f"Please enter a valid {label}, for example 01700000000.")
+
+
+class AdmissionApplicationForm(TailwindStyledFormMixin, HoneypotMixin, forms.ModelForm):
+    """The public "Apply Now" form. Collects what staff need to start
+    verification — it never creates a Student."""
+
+    understand = forms.BooleanField(
+        required=True,
+        label=(
+            "I understand that this is only an application and not a confirmed admission. A guardian must visit or talk with us so the admission can be verified."
+        ),
+        error_messages={"required": "Please confirm that you understand the admission process."},
+    )
+
+    class Meta:
+        model = AdmissionApplication
+        fields = [
+            "course", "preferred_batch",
+            "student_name", "date_of_birth", "gender", "institution_name",
+            "blood_group", "student_phone", "address",
+            "guardian_name", "guardian_relation", "guardian_phone",
+            "reference", "message",
+        ]
+        labels = {
+            "course": "The course you wish to enrol in",
+            "preferred_batch": "Preferred batch / time (optional)",
+            "student_name": "Student's full name",
+            "date_of_birth": "Date of birth",
+            "gender": "Gender",
+            "institution_name": "School / College name",
+            "blood_group": "Blood group (optional)",
+            "student_phone": "Student's phone (optional)",
+            "address": "Address (optional)",
+            "guardian_name": "Guardian's full name",
+            "guardian_relation": "Relation to student",
+            "guardian_phone": "Guardian's phone",
+            "reference": "Reference (optional)",
+            "message": "Anything more you want us to know (optional)",
+        }
+        widgets = {
+            "date_of_birth": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+            "address": forms.Textarea(attrs={"rows": 2}),
+            "message": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["course"].queryset = AdmissionInfo.objects.filter(is_active=True).order_by("title")
+        self.fields["course"].required = True
+        self.fields["course"].empty_label = "Select a course"
+        self.fields["date_of_birth"].input_formats = ["%Y-%m-%d"]
+        self.fields["gender"].required = True
+        self.fields["gender"].choices = [("", "Select gender")] + AdmissionApplication.GENDER_CHOICES
+        self.fields["institution_name"].required = True
+        self.fields["institution_name"].widget.attrs["placeholder"] = "Current school or college of the student"
+        self.fields["blood_group"].required = False
+        self.fields["blood_group"].choices = [("", "Select blood group")] + list(BLOOD_GROUP_CHOICES)
+        self.fields["guardian_relation"].required = True
+        self.fields["guardian_relation"].choices = AdmissionApplication.GUARDIAN_RELATIONS
+        self.fields["preferred_batch"].widget.attrs["placeholder"] = "e.g. Morning, after school"
+        self.fields["reference"].widget.attrs["placeholder"] = "Who referred you to us, if anyone did"
+        for name in ("student_phone", "address", "preferred_batch", "reference", "message"):
+            self.fields[name].required = False
+        self._style_fields()
+
+    def clean_date_of_birth(self):
+        dob = self.cleaned_data.get("date_of_birth")
+        if dob:
+            today = timezone.localdate()
+            if dob > today:
+                raise ValidationError("The date of birth cannot be in the future.")
+            if (today - dob).days / 365.25 > 100:
+                raise ValidationError("Please verify this date; it is more than 100 years in the past.")
+        return dob
+
+    def clean_guardian_phone(self):
+        value = (self.cleaned_data.get("guardian_phone") or "").strip()
+        _validate_phone(value, "guardian phone number")
+        return value
+
+    def clean_student_phone(self):
+        value = (self.cleaned_data.get("student_phone") or "").strip()
+        if value:
+            _validate_phone(value, "phone number")
+        return value
+
+    def clean(self):
+        cleaned = super().clean()
+        # Double-clicks and repeat submissions: if this guardian already has
+        # a still-open application for the same student and course, don't
+        # create a second one — tell them we already have it.
+        name = (cleaned.get("student_name") or "").strip()
+        phone = cleaned.get("guardian_phone")
+        course = cleaned.get("course")
+        if name and phone and course:
+            already = AdmissionApplication.objects.filter(
+                student_name__iexact=name, guardian_phone=phone, course=course,
+                status__in=["Pending", "Contacted", "Verified"],
+            ).exists()
+            if already:
+                raise ValidationError(
+                    f"An application for {name} in {course.title} is already open "
+                    f"under this phone number. Our team will contact you, so there is no need to apply again."
+                )
+        return cleaned
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        instance.status = "Pending"  # the public can never set this
+        instance.course_title = instance.course.title if instance.course_id else None
+        if commit:
+            instance.save()
+        return instance
+
+
+class AdmissionApplicationAdminForm(TailwindStyledFormMixin, forms.ModelForm):
+    """Staff-side edit form for applications (correct details, set the
+    status, keep private notes). Separate from the public form: no
+    honeypot, no acknowledgement checkbox, and it exposes status/notes."""
+
+    class Meta:
+        model = AdmissionApplication
+        fields = [
+            "status", "staff_notes",
+            "course", "preferred_batch",
+            "student_name", "date_of_birth", "gender", "institution_name",
+            "blood_group", "student_phone", "address",
+            "guardian_name", "guardian_relation", "guardian_phone",
+            "reference", "message",
+        ]
+        labels = {
+            "course": "Course",
+            "staff_notes": "Staff notes (private)",
+            "guardian_relation": "Guardian's relation",
+        }
+        widgets = {
+            "date_of_birth": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+            "address": forms.Textarea(attrs={"rows": 2}),
+            "message": forms.Textarea(attrs={"rows": 3}),
+            "staff_notes": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["date_of_birth"].input_formats = ["%Y-%m-%d"]
+        self.fields["course"].required = False
+        self.fields["course"].empty_label = "No course selected"
+        for name in ("gender", "institution_name", "blood_group", "student_phone", "address",
+                     "preferred_batch", "reference", "message", "staff_notes"):
+            self.fields[name].required = False
+        self.fields["gender"].choices = [("", "—")] + AdmissionApplication.GENDER_CHOICES
+        self.fields["blood_group"].choices = [("", "—")] + list(BLOOD_GROUP_CHOICES)
+        self._style_fields()
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        if instance.course_id:
+            instance.course_title = instance.course.title
+        if commit:
+            instance.save()
+        return instance

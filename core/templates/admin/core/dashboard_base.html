@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Dashboard — Update IT{% endblock %}</title>
+<style>
+  :root {
+    --bg: #FBFBF7;
+    --surface: #FFFFFF;
+    --surface-2: #F7F3F3;
+    --border: #EAE4E4;
+    --text: #2A2020;
+    --muted: #756B6B;
+    --accent: #830000;
+    --accent-hover: #6a0000;
+    --accent-soft: #FBEAEA;
+    --accent-soft-border: #EBC5C5;
+    --danger: #C0392B;
+    --danger-soft: #FBEAE7;
+    --danger-soft-border: #F2CCC4;
+    --radius: 12px;
+    --radius-sm: 8px;
+    --shadow: 0 1px 2px rgba(42, 32, 32,0.05), 0 2px 8px rgba(42, 32, 32,0.04);
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    font-size: 15.5px;
+    line-height: 1.55;
+  }
+  a { color: inherit; }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  .shell { display: flex; min-height: 100vh; }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar {
+    width: 258px;
+    flex-shrink: 0;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 22px 16px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+  }
+  .sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 2px 8px 24px;
+  }
+  .sidebar-brand-badge {
+    width: 36px; height: 36px;
+    border-radius: 9px;
+    background: var(--accent);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+  }
+  .sidebar-brand-name { font-weight: 700; font-size: 1rem; color: var(--text); }
+  .sidebar-brand-sub { font-size: 0.72rem; color: var(--muted); margin-top: 1px; }
+
+  .nav-section-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 18px 12px 8px;
+  }
+  .nav-link {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 12px;
+    border-radius: var(--radius-sm);
+    font-size: 0.94rem;
+    font-weight: 500;
+    color: #463C3C;
+    text-decoration: none !important;
+    margin-bottom: 3px;
+  }
+  .nav-link:hover { background: var(--surface-2); color: var(--text); }
+  .nav-link.active { background: var(--accent-soft); color: var(--accent-hover); font-weight: 700; }
+  .nav-link svg { width: 19px; height: 19px; flex-shrink: 0; opacity: 0.9; }
+
+  /* ---------- Main column ---------- */
+  .main { flex: 1; min-width: 0; }
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 32px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: rgba(251,251,247,0.9);
+    backdrop-filter: blur(8px);
+    z-index: 10;
+  }
+  .topbar-crumb { font-weight: 700; color: var(--text); font-size: 1.02rem; }
+  .topbar-right { display: flex; align-items: center; gap: 18px; }
+  .topbar-actions { display: flex; align-items: center; gap: 4px; }
+  .topbar-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-decoration: none !important;
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .topbar-link:hover { background: var(--surface-2); color: var(--text); }
+  .topbar-link svg { width: 16px; height: 16px; flex-shrink: 0; }
+  .topbar-logout-form { display: inline-flex; margin: 0; }
+  .topbar-divider { width: 1px; height: 22px; background: var(--border); }
+  .topbar-user { display: flex; align-items: center; gap: 10px; }
+  .topbar-user-avatar {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 0.88rem;
+    border: 1px solid var(--accent-soft-border);
+  }
+  .topbar-user-name { font-weight: 600; font-size: 0.92rem; }
+
+  .content { padding: 30px 32px 64px; max-width: 1180px; }
+
+  /* ---------- Shared page chrome ---------- */
+  .page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 26px;
+  }
+  .page-title { font-size: 1.5rem; font-weight: 700; margin: 0; color: var(--text); }
+  .page-sub { font-size: 0.92rem; color: var(--muted); margin: 5px 0 0; }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.92rem;
+    font-weight: 600;
+    padding: 11px 20px;
+    border-radius: var(--radius-sm);
+    border: 1px solid transparent;
+    cursor: pointer;
+    text-decoration: none !important;
+    min-height: 42px;
+    line-height: 1;
+  }
+  .btn-accent { background: var(--accent); color: #fff; }
+  .btn-accent:hover { background: var(--accent-hover); }
+  .btn-ghost { background: var(--surface); border-color: var(--border); color: var(--text); }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent-hover); background: var(--accent-soft); }
+  .btn-danger { background: var(--surface); border-color: var(--danger-soft-border); color: var(--danger); }
+  .btn-danger:hover { background: var(--danger-soft); }
+  .btn-sm { padding: 7px 13px; font-size: 0.84rem; min-height: 34px; }
+  .btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+
+  .messages { margin-bottom: 20px; }
+  .msg {
+    padding: 13px 18px;
+    border-radius: var(--radius-sm);
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-bottom: 9px;
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+    border: 1px solid var(--accent-soft-border);
+  }
+
+  .dash-table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+  .dash-table th {
+    text-align: left;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+    color: var(--muted);
+    padding: 15px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+  .dash-table th:first-child { border-top-left-radius: var(--radius); }
+  .dash-table th:last-child { border-top-right-radius: var(--radius); }
+  .dash-table td {
+    padding: 15px 20px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+    color: var(--text);
+  }
+  .dash-table tr:last-child td { border-bottom: none; }
+  .dash-table tbody tr:hover { background: var(--accent-soft); }
+
+  .pill {
+    display: inline-block;
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 4px 11px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+    border: 1px solid var(--accent-soft-border);
+  }
+
+  .row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .empty-state {
+    text-align: center;
+    padding: 64px 24px;
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
+  .empty-state-icon {
+    width: 44px; height: 44px;
+    margin: 0 auto 14px;
+    color: var(--muted);
+    opacity: 0.6;
+  }
+
+  .form-card { max-width: 560px; padding: 30px 32px; }
+  .form-field { margin-bottom: 20px; }
+  .form-label { display: block; font-size: 0.88rem; font-weight: 700; margin-bottom: 8px; color: var(--text); }
+  .form-help { font-size: 0.8rem; color: var(--muted); margin-top: 6px; }
+  .form-error { font-size: 0.8rem; color: var(--danger); margin-top: 6px; font-weight: 600; }
+  .form-actions { display: flex; gap: 12px; margin-top: 28px; }
+  .form-card-wide { max-width: 760px; }
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 20px;
+  }
+  .form-grid .form-field.full-width { grid-column: 1 / -1; }
+  @media (max-width: 640px) { .form-grid { grid-template-columns: 1fr; } }
+
+  .form-section-label {
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    margin: 4px 0 14px;
+    grid-column: 1 / -1;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+  .form-section-label:first-child { border-top: none; padding-top: 0; }
+
+  /* Friendly pill-style radio buttons (used for Gender etc.) */
+  .radio-group { display: flex; gap: 10px; flex-wrap: wrap; }
+  .radio-group input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    width: 0; height: 0;
+  }
+  .radio-group label {
+    display: inline-flex;
+    align-items: center;
+    padding: 10px 20px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text);
+    cursor: pointer;
+    background: var(--surface);
+  }
+  .radio-group input[type="radio"]:checked + label,
+  .radio-group label:has(input[type="radio"]:checked) {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent-hover);
+  }
+  .radio-group input[type="radio"]:focus-visible + label {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .code-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--accent-hover);
+    background: var(--accent-soft);
+    border: 1px solid var(--accent-soft-border);
+    padding: 8px 16px;
+    border-radius: var(--radius-sm);
+  }
+  .code-note { font-size: 0.82rem; color: var(--muted); margin-top: 8px; }
+
+  .back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-decoration: none !important;
+    margin-bottom: 18px;
+  }
+  .back-link:hover { color: var(--accent-hover); }
+  .back-link svg { width: 14px; height: 14px; }
+
+  /* Form inputs (used across TailwindStyledFormMixin fields too) */
+  input[type="text"], input[type="password"], input[type="email"],
+  input[type="number"], input[type="date"], input[type="time"],
+  select, textarea {
+    width: 100%;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    padding: 11px 14px;
+    border-radius: var(--radius-sm);
+    font-size: 0.94rem;
+    font-family: inherit;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+
+  /* ================= Responsive ================= */
+
+  .topbar-crumb { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .menu-toggle, .sidebar-close { display: none; }
+  .sidebar-overlay { display: none; }
+  .sidebar { overscroll-behavior: contain; }
+
+  /* Wide tables scroll inside their own panel instead of pushing the
+     whole page sideways. (Wrapped by the script at the bottom.) */
+  .table-scroll {
+    overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%;
+    /* soft shadows at an edge that has more to scroll to */
+    background:
+      linear-gradient(to right, var(--surface) 30%, rgba(255,255,255,0)) left center / 40px 100% no-repeat local,
+      linear-gradient(to left, var(--surface) 30%, rgba(255,255,255,0)) right center / 40px 100% no-repeat local,
+      radial-gradient(farthest-side at 0 50%, rgba(42, 32, 32,0.16), rgba(42, 32, 32,0)) left center / 12px 100% no-repeat scroll,
+      radial-gradient(farthest-side at 100% 50%, rgba(42, 32, 32,0.16), rgba(42, 32, 32,0)) right center / 12px 100% no-repeat scroll;
+  }
+  /* In a table that has to scroll, keep each row's buttons on one line
+     rather than squashing them into a column */
+  @media (max-width: 1180px) { .dash-table .row-actions { flex-wrap: nowrap; } }
+
+  /* Tablet and phone: the sidebar becomes a slide-in menu */
+  @media (max-width: 860px) {
+    .menu-toggle {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 42px; height: 42px; flex-shrink: 0;
+      border: 1px solid var(--border); background: var(--surface); color: var(--text);
+      border-radius: var(--radius-sm); cursor: pointer; padding: 0;
+    }
+    .menu-toggle svg { width: 20px; height: 20px; }
+    .topbar { padding: 10px 16px; gap: 12px; }
+    .topbar-crumb { flex: 1; }
+    .content { padding: 22px 18px 48px; }
+
+    .sidebar {
+      position: fixed; left: 0; top: 0; bottom: 0; z-index: 50;
+      width: min(86vw, 300px); height: 100vh; height: 100dvh;
+      transform: translateX(-100%); visibility: hidden;
+      transition: transform 0.22s ease, visibility 0s linear 0.22s;
+      box-shadow: none;
+    }
+    .sidebar.open {
+      transform: none; visibility: visible;
+      transition: transform 0.22s ease, visibility 0s;
+      box-shadow: 0 0 40px rgba(28, 20, 20, 0.25);
+    }
+    .sidebar-close {
+      display: inline-flex; align-items: center; justify-content: center;
+      position: absolute; top: 14px; right: 12px;
+      width: 38px; height: 38px; border-radius: var(--radius-sm);
+      border: none; background: transparent; color: var(--muted);
+      font-size: 1.7rem; line-height: 1; cursor: pointer;
+    }
+    .sidebar-close:hover { background: var(--surface-2); color: var(--text); }
+    .sidebar-overlay {
+      display: block; position: fixed; inset: 0; z-index: 40;
+      background: rgba(28, 20, 20, 0.45);
+      opacity: 0; pointer-events: none; transition: opacity 0.22s ease;
+    }
+    .sidebar-overlay.show { opacity: 1; pointer-events: auto; }
+    body.menu-open { overflow: hidden; }
+    .nav-link { padding: 13px 12px; }   /* comfortable touch targets */
+  }
+
+  /* Phone */
+  @media (max-width: 640px) {
+    body { font-size: 15px; }
+    .content { padding: 16px 14px 40px; }
+    .topbar { padding: 8px 12px; gap: 8px; }
+    .topbar-crumb { font-size: 0.96rem; }
+    .topbar-right { gap: 6px; }
+    .topbar-divider, .topbar-user-name, .topbar-link-text { display: none; }
+    .topbar-link { padding: 10px; }
+    .topbar-actions { gap: 0; }
+
+    .page-header { gap: 12px; margin-bottom: 18px; align-items: flex-start; flex-direction: column; }
+    .page-header > .row-actions, .page-header > div:last-child:not(:first-child) { width: 100%; }
+    .page-title { font-size: 1.28rem; }
+    .row-actions { gap: 8px; }
+    .page-header .row-actions .btn { flex: 1 1 auto; justify-content: center; }
+    .btn-sm { min-height: 40px; padding: 8px 14px; }
+
+    .form-card, .form-card-wide { padding: 20px 16px; max-width: none; }
+    .form-actions { flex-wrap: wrap; }
+    .form-actions .btn { flex: 1 1 auto; justify-content: center; }
+    /* 16px stops iOS Safari zooming the page when a field is focused */
+    input[type="text"], input[type="password"], input[type="email"],
+    input[type="number"], input[type="date"], input[type="time"],
+    input[type="month"], input[type="tel"], select, textarea { font-size: 16px; min-width: 0; }
+    .empty-state { padding: 44px 16px; }
+
+    /* Tables: each row becomes a labelled card. Labels are filled in
+       from the column headings by the script at the bottom of the page.
+       Tables with many columns (grids, month-by-month sheets) are left as
+       real tables that scroll sideways inside their panel. */
+    .dash-table.is-stacked,
+    .dash-table.is-stacked tbody,
+    .dash-table.is-stacked tr,
+    .dash-table.is-stacked td { display: block; width: 100%; }
+    .dash-table.is-stacked thead {
+      position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);
+    }
+    .dash-table.is-stacked tbody tr { padding: 8px 0; border-bottom: 8px solid var(--bg); }
+    .dash-table.is-stacked tbody tr:last-child { border-bottom: none; }
+    .dash-table.is-stacked td {
+      padding: 7px 16px; border: none; overflow-wrap: anywhere;
+    }
+    .dash-table.is-stacked td[data-label]:not([data-label=""])::before {
+      content: attr(data-label); display: block; margin-bottom: 2px;
+      font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .dash-table.is-stacked td:empty { display: none; }
+    .dash-table.is-stacked td .row-actions { margin-top: 2px; flex-wrap: wrap; }
+    .dash-table.is-stacked td[style*="width"] { width: 100% !important; }
+    .dash-table:not(.is-stacked) th, .dash-table:not(.is-stacked) td { padding: 12px 14px; white-space: nowrap; }
+
+    /* Search / filter bars: full-width fields instead of fixed-width ones.
+       (!important because several pages set inline widths on them.) */
+    .content form[method="get"] { gap: 10px; }
+    .content form[method="get"] > input,
+    .content form[method="get"] > select { flex: 1 1 100%; max-width: none !important; width: 100%; }
+    .content form[method="get"] > div[style*="flex"] { flex: 1 1 100% !important; min-width: 0 !important; }
+    .content form[method="get"] > .btn { flex: 1 1 0; justify-content: center; }
+    .content form[method="get"] > .row-actions { width: 100%; }
+    .content input[type="month"] { width: 100%; }
+
+    /* "‹ Sep 2026 | [month picker] | Nov 2026 ›" -> picker on top, then
+       previous / next side by side */
+    .row-actions.month-nav { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+    .row-actions.month-nav > form { grid-column: 1 / -1; order: -1; }
+    .row-actions.month-nav input { width: 100%; min-width: 0 !important; }
+    .row-actions.month-nav > .btn { justify-content: center; }
+    .content form[method="get"] > .row-actions .btn { flex: 1 1 0; justify-content: center; }
+
+    /* Stat cards sit two to a row (the .content prefix outranks each
+       page's own .stat-grid rule) */
+    .content .stat-grid, .content .finance-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .content .stat-card { padding: 13px 14px; }
+    .content .stat-value { font-size: 1.3rem; }
+    .content .stat-note { font-size: 0.76rem; }
+    .content .finance-grid .stat-card:last-child:nth-child(odd) { grid-column: 1 / -1; }
+    .content .stat-card { min-width: 0; overflow-wrap: anywhere; }
+  }
+
+  /* Very small phones (e.g. 320px): cards with an icon don't fit two across */
+  @media (max-width: 380px) {
+    .content .stat-grid, .content .finance-grid { grid-template-columns: 1fr; }
+  }
+</style>
+{% block extra_head %}{% endblock %}
+</head>
+<body>
+<div class="shell">
+
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <aside class="sidebar" id="sidebar" aria-label="Main navigation">
+    <button type="button" class="sidebar-close" id="sidebarClose" aria-label="Close menu">&times;</button>
+    <div class="sidebar-brand">
+      <span class="sidebar-brand-badge">U</span>
+      <div>
+        <div class="sidebar-brand-name">Update IT</div>
+        <div class="sidebar-brand-sub">Staff Dashboard</div>
+      </div>
+    </div>
+
+    <p class="nav-section-label">Overview</p>
+    <a href="/admin/" class="nav-link">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>
+      Dashboard
+    </a>
+
+    <p class="nav-section-label">Inbox</p>
+    <a href="{% url 'admin:core_admissionapplication_changelist' %}" class="nav-link {% if active_page == 'admissionapplication_list' or active_page == 'admissionapplication_view' or active_page == 'admissionapplication_add' or active_page == 'admissionapplication_edit' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg>
+      Admission Applications
+    </a>
+    <a href="/admin/core/admissioninquiry/" class="nav-link">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4z"/><path d="M4 4l8 8 8-8"/></svg>
+      Admission Inquiries
+    </a>
+    <a href="/admin/core/contactmessage/" class="nav-link">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
+      Contact Messages
+    </a>
+
+    <p class="nav-section-label">Academics</p>
+    <a href="{% url 'admin:core_class_changelist' %}" class="nav-link {% if active_section == 'classes' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5.5c0-1 .9-1.8 2-1.8h5.5V19H6c-1 0-2 .4-2 1.2V5.5z"/><path d="M20 5.5c0-1-.9-1.8-2-1.8h-5.5V19H18c1 0 2 .4 2 1.2V5.5z"/></svg>
+      Classes
+    </a>
+    <a href="{% url 'admin:core_batch_changelist' %}" class="nav-link {% if active_section == 'batches' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3.5" y="5" width="17" height="15.5" rx="1.2"/><path d="M3.5 10h17"/><path d="M8 3v4M16 3v4"/></svg>
+      Batches
+    </a>
+    <a href="/admin/core/subject/" class="nav-link">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5V5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5a2.5 2.5 0 0 0-2.5 2.5z"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/></svg>
+      Subjects
+    </a>
+    <a href="/admin/core/classschedule/" class="nav-link">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18"/><path d="M8 2v4M16 2v4"/></svg>
+      Class Schedules
+    </a>
+    <a href="{% url 'admin:core_exam_changelist' %}" class="nav-link {% if active_section == 'academics' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      Exams
+    </a>
+
+    <p class="nav-section-label">People</p>
+    <a href="{% url 'admin:core_student_changelist' %}" class="nav-link {% if active_section == 'students' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c0-4 3.5-6.5 7.5-6.5s7.5 2.5 7.5 6.5"/></svg>
+      Students
+    </a>
+    <a href="/admin/core/faculty/" class="nav-link">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 10l8-5 8 5-8 5-8-5z"/><path d="M8 12.5V17c0 1 1.8 2 4 2s4-1 4-2v-4.5"/></svg>
+      Faculty
+    </a>
+    <a href="{% url 'admin:core_facultyattendance_changelist' %}" class="nav-link {% if active_page == 'facultyattendance_list' or active_page == 'facultyattendance_mark' or active_page == 'facultyattendance_monthly_summary' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 12l2 2 4-4"/><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18"/></svg>
+      Faculty Attendance
+    </a>
+
+    <p class="nav-section-label">Finance</p>
+    <a href="{% url 'admin:core_studentpaymentreceipt_changelist' %}" class="nav-link {% if active_page == 'studentpaymentreceipt_list' or active_page == 'studentpaymentreceipt_view' or active_page == 'studentpaymentreceipt_add' or active_page == 'studentpaymentreceipt_edit' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2.5" y="6" width="19" height="13" rx="2"/><path d="M2.5 10.5h19"/></svg>
+      Student Payments
+    </a>
+    <a href="{% url 'admin:core_studentpaymentreceipt_monthly_status' %}" class="nav-link {% if active_page == 'studentpaymentreceipt_monthly_status' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18"/><path d="m8.5 14 2 2 4-4"/></svg>
+      Monthly Fee Status
+    </a>
+    <a href="{% url 'admin:core_teachersalary_changelist' %}" class="nav-link {% if active_page == 'teachersalary_list' or active_page == 'teachersalary_view' or active_page == 'teachersalary_add' or active_page == 'teachersalary_edit' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9.5 9.5h4a1.75 1.75 0 0 1 0 3.5h-3a1.75 1.75 0 0 0 0 3.5h4.5"/></svg>
+      Teacher Salaries
+    </a>
+    <a href="{% url 'admin:core_teachersalary_monthly_status' %}" class="nav-link {% if active_page == 'teachersalary_monthly_status' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18"/><path d="m8.5 14 2 2 4-4"/></svg>
+      Salary Status
+    </a>
+    <a href="{% url 'admin:core_expense_changelist' %}" class="nav-link {% if active_page == 'expense_list' or active_page == 'expense_add' or active_page == 'expense_edit' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>
+      Other Expenses
+    </a>
+
+    <p class="nav-section-label">Website Content</p>
+    <a href="/admin/core/notice/" class="nav-link">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      Notices
+    </a>
+    <a href="/admin/core/achievement/" class="nav-link">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 21h8M12 17v4"/><path d="M7 4h10v5a5 5 0 0 1-10 0V4z"/><path d="M7 5H4a3 3 0 0 0 3 5M17 5h3a3 3 0 0 1-3 5"/></svg>
+      Achievements
+    </a>
+    <a href="{% url 'admin:core_gallerysection_changelist' %}" class="nav-link {% if active_page == 'gallerysection_list' or active_page == 'gallerysection_add' or active_page == 'gallerysection_edit' or active_page == 'gallerysection_view' or active_page == 'gallerysubsection_list' or active_page == 'gallerysubsection_add' or active_page == 'gallerysubsection_edit' or active_page == 'gallerysubsection_view' %}active{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.75"/><path d="M21 16l-5.5-5.5a2 2 0 0 0-2.8 0L4 19"/></svg>
+      Gallery
+    </a>
+    <a href="/admin/core/admissioninfo/" class="nav-link">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg>
+      Admission Info
+    </a>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <button type="button" class="menu-toggle" id="menuToggle" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <div class="topbar-crumb">{% block crumb %}Dashboard{% endblock %}</div>
+      <div class="topbar-right">
+        <div class="topbar-actions">
+          <a href="/" class="topbar-link" target="_blank" rel="noopener" title="View site" aria-label="View site">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-9"/></svg>
+            <span class="topbar-link-text">View site</span>
+          </a>
+          <form method="post" action="{% url 'admin:logout' %}" class="topbar-logout-form">
+            {% csrf_token %}
+            <button type="submit" class="topbar-link" title="Log out" aria-label="Log out">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 17.5 20 12l-5-5.5"/><path d="M20 12H9"/><path d="M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4"/></svg>
+              <span class="topbar-link-text">Log out</span>
+            </button>
+          </form>
+        </div>
+        <div class="topbar-divider"></div>
+        <div class="topbar-user">
+          <span class="topbar-user-avatar">{{ request.user.first_name|default:request.user.get_username|slice:":1"|upper }}</span>
+          <span class="topbar-user-name">{{ request.user.first_name|default:request.user.get_username }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="content">
+      {% if messages %}
+      <div class="messages">
+        {% for message in messages %}
+        <div class="msg">{{ message }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+
+</div>
+<script>
+(function () {
+  /* ---- Mobile menu ---- */
+  var toggle = document.getElementById('menuToggle');
+  var sidebar = document.getElementById('sidebar');
+  var overlay = document.getElementById('sidebarOverlay');
+  var closeBtn = document.getElementById('sidebarClose');
+  function setOpen(open) {
+    sidebar.classList.toggle('open', open);
+    overlay.classList.toggle('show', open);
+    document.body.classList.toggle('menu-open', open);
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    toggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+    if (open) {
+      var active = sidebar.querySelector('.nav-link.active');
+      if (active && active.scrollIntoView) active.scrollIntoView({ block: 'center' });
+      closeBtn.focus();
+    }
+  }
+  toggle.addEventListener('click', function () { setOpen(!sidebar.classList.contains('open')); });
+  overlay.addEventListener('click', function () { setOpen(false); });
+  closeBtn.addEventListener('click', function () { setOpen(false); toggle.focus(); });
+  sidebar.addEventListener('click', function (e) { if (e.target.closest('a')) setOpen(false); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && sidebar.classList.contains('open')) { setOpen(false); toggle.focus(); }
+  });
+  var desktop = window.matchMedia('(min-width: 861px)');
+  var onChange = function (e) { if (e.matches) setOpen(false); };
+  if (desktop.addEventListener) desktop.addEventListener('change', onChange);
+  else if (desktop.addListener) desktop.addListener(onChange);
+
+  /* ---- Tables: scroll wrapper + labels for the phone card layout ---- */
+  var MAX_STACK_COLUMNS = 8;   /* more columns than this stay a scrolling table */
+  document.querySelectorAll('table.dash-table').forEach(function (table) {
+    if (!table.parentElement.classList.contains('table-scroll')) {
+      var wrap = document.createElement('div');
+      wrap.className = 'table-scroll';
+      table.parentNode.insertBefore(wrap, table);
+      wrap.appendChild(table);
+    }
+    var heads = Array.prototype.map.call(table.querySelectorAll('thead th'), function (th) {
+      return th.textContent.replace(/\s+/g, ' ').trim();
+    });
+    if (!heads.length || heads.length > MAX_STACK_COLUMNS || table.hasAttribute('data-scroll')) return;
+    table.querySelectorAll('tbody tr').forEach(function (tr) {
+      if (tr.children.length !== heads.length) return;     /* e.g. a colspan row */
+      Array.prototype.forEach.call(tr.children, function (td, i) {
+        if (td.tagName === 'TD') td.setAttribute('data-label', heads[i]);
+      });
+    });
+    table.classList.add('is-stacked');
+  });
+})();
+</script>
+</body>
+</html>

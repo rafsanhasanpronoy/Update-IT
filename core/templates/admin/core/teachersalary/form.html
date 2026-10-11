@@ -1,0 +1,164 @@
+{% extends "admin/core/dashboard_base.html" %}
+
+{% block title %}{% if instance %}Edit Salary{% else %}Record a Salary{% endif %} — Dashboard{% endblock %}
+{% block crumb %}Teacher Salaries{% endblock %}
+
+{% block extra_head %}
+<style>
+  .calc-summary {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin-bottom: 22px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 12px 20px;
+  }
+  .calc-summary .item { display: flex; flex-direction: column; gap: 2px; }
+  .calc-summary .label { font-size: 0.72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .calc-summary .value { font-size: 1.05rem; font-weight: 700; color: var(--text); }
+  .calc-summary .value.due { color: #991B1B; }
+</style>
+{% endblock %}
+
+{% block content %}
+<a href="{% if instance %}{% url 'admin:core_teachersalary_view' instance.pk %}{% else %}{% url 'admin:core_teachersalary_changelist' %}{% endif %}" class="back-link">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+  {% if instance %}Back to Salary Record{% else %}Back to Teacher Salaries{% endif %}
+</a>
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title">{% if instance %}Edit Salary{% else %}Record a Salary{% endif %}</h1>
+    {% if locked_teacher %}
+    <p class="page-sub">For {{ locked_teacher.full_name }}{% if instance.receipt_number %} · {{ instance.receipt_number }}{% endif %}</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="panel form-card form-card-wide">
+  {% if form.non_field_errors %}
+    {% for error in form.non_field_errors %}
+    <div class="form-error" style="margin-bottom: 16px;">{{ error }}</div>
+    {% endfor %}
+  {% endif %}
+
+  <div class="calc-summary" id="calcSummary">
+    <div class="item"><span class="label">Class-Based Pay</span><span class="value" id="calcClassPay">৳0.00</span></div>
+    <div class="item"><span class="label">Net Salary</span><span class="value" id="calcNetSalary">৳0.00</span></div>
+    <div class="item"><span class="label">Due Amount</span><span class="value due" id="calcDueAmount">৳0.00</span></div>
+  </div>
+
+  <form method="post">
+    {% csrf_token %}
+
+    <div class="form-grid">
+      {% if locked_teacher %}
+      {{ form.teacher }}
+      <div class="form-field full-width">
+        <span class="form-label">Faculty</span>
+        <div class="code-badge">{{ locked_teacher.full_name }}</div>
+      </div>
+      {% else %}
+      <div class="form-field full-width">
+        <label class="form-label" for="{{ form.teacher.id_for_label }}">Faculty</label>
+        {{ form.teacher }}
+        {% if form.teacher.errors %}<div class="form-error">{{ form.teacher.errors.0 }}</div>{% endif %}
+      </div>
+      {% endif %}
+
+      <div class="form-field">
+        <label class="form-label" for="{{ form.salary_month.id_for_label }}">Salary Month</label>
+        {{ form.salary_month }}
+        {% if form.salary_month.errors %}<div class="form-error">{{ form.salary_month.errors.0 }}</div>{% endif %}
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="{{ form.payment_method.id_for_label }}">Payment Method</label>
+        {{ form.payment_method }}
+        {% if form.payment_method.errors %}<div class="form-error">{{ form.payment_method.errors.0 }}</div>{% endif %}
+      </div>
+
+      <p class="form-section-label">Pay</p>
+      <div class="form-field">
+        <label class="form-label" for="{{ form.classes_taken.id_for_label }}">Classes Taken</label>
+        {{ form.classes_taken }}
+        {% if form.classes_taken.errors %}<div class="form-error">{{ form.classes_taken.errors.0 }}</div>{% endif %}
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="{{ form.rate_per_class.id_for_label }}">{{ form.rate_per_class.label }}</label>
+        {{ form.rate_per_class }}
+        {% if form.rate_per_class.errors %}<div class="form-error">{{ form.rate_per_class.errors.0 }}</div>{% endif %}
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="{{ form.bonus.id_for_label }}">Bonus (৳)</label>
+        {{ form.bonus }}
+        {% if form.bonus.errors %}<div class="form-error">{{ form.bonus.errors.0 }}</div>{% endif %}
+      </div>
+
+      <p class="form-section-label">Payment</p>
+      <div class="form-field">
+        <label class="form-label" for="{{ form.paid_amount.id_for_label }}">Paid Amount (৳)</label>
+        {{ form.paid_amount }}
+        {% if form.paid_amount.errors %}<div class="form-error">{{ form.paid_amount.errors.0 }}</div>{% endif %}
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="{{ form.transaction_id.id_for_label }}">Transaction ID</label>
+        {{ form.transaction_id }}
+        <p class="form-help">{{ form.transaction_id.help_text }}</p>
+        {% if form.transaction_id.errors %}<div class="form-error">{{ form.transaction_id.errors.0 }}</div>{% endif %}
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="{{ form.payment_date.id_for_label }}">Payment Date</label>
+        {{ form.payment_date }}
+        <p class="form-help">{{ form.payment_date.help_text }}</p>
+        {% if form.payment_date.errors %}<div class="form-error">{{ form.payment_date.errors.0 }}</div>{% endif %}
+      </div>
+
+      <div class="form-field full-width">
+        <label class="form-label" for="{{ form.remarks.id_for_label }}">Remarks</label>
+        {{ form.remarks }}
+        {% if form.remarks.errors %}<div class="form-error">{{ form.remarks.errors.0 }}</div>{% endif %}
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn btn-accent">{% if instance %}Save Changes{% else %}Save Salary{% endif %}</button>
+      <a href="{% if instance %}{% url 'admin:core_teachersalary_view' instance.pk %}{% else %}{% url 'admin:core_teachersalary_changelist' %}{% endif %}" class="btn btn-ghost">Cancel</a>
+    </div>
+  </form>
+</div>
+
+<script>
+(function () {
+  var classesEl = document.getElementById('{{ form.classes_taken.id_for_label }}');
+  var rateEl = document.getElementById('{{ form.rate_per_class.id_for_label }}');
+  var bonusEl = document.getElementById('{{ form.bonus.id_for_label }}');
+  var paidEl = document.getElementById('{{ form.paid_amount.id_for_label }}');
+
+  var classPayOut = document.getElementById('calcClassPay');
+  var netOut = document.getElementById('calcNetSalary');
+  var dueOut = document.getElementById('calcDueAmount');
+
+  function num(el) {
+    var v = parseFloat(el && el.value);
+    return isNaN(v) ? 0 : v;
+  }
+
+  function recalc() {
+    var classBasedPay = num(classesEl) * num(rateEl);
+    var net = classBasedPay + num(bonusEl);
+    var due = Math.max(net - num(paidEl), 0);
+
+    classPayOut.textContent = '৳' + Math.round(classBasedPay);
+    netOut.textContent = '৳' + Math.round(net);
+    dueOut.textContent = '৳' + Math.round(due);
+  }
+
+  [classesEl, rateEl, bonusEl, paidEl].forEach(function (el) {
+    if (el) el.addEventListener('input', recalc);
+  });
+  recalc();
+})();
+</script>
+{% endblock %}

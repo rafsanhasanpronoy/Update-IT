@@ -1,0 +1,77 @@
+{% extends "admin/core/dashboard_base.html" %}
+
+{% block title %}Salary — {{ instance.teacher.full_name }} — Dashboard{% endblock %}
+{% block crumb %}Teacher Salaries{% endblock %}
+
+{% block content %}
+<a href="{% url 'admin:core_teachersalary_changelist' %}" class="back-link">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+  Back to Teacher Salaries
+</a>
+
+<div class="page-header">
+  <div>
+    <h1 class="page-title">{{ instance.teacher.full_name }} &mdash; {{ instance.salary_month|date:"F Y" }}</h1>
+    <p class="page-sub">
+      <span class="pill">{{ instance.get_status_display }}</span>
+      {% if instance.receipt_number %} · {{ instance.receipt_number }}{% endif %}
+    </p>
+  </div>
+  <div class="row-actions">
+    <a href="{% url 'admin:core_teachersalary_slip' instance.pk %}" class="btn btn-ghost">Generate Salary Slip</a>
+    <a href="{% url 'admin:core_teachersalary_receipt' instance.pk %}" target="_blank" class="btn btn-ghost">View Receipt</a>
+    <a href="{% url 'admin:core_teachersalary_change' instance.pk %}" class="btn btn-accent">Edit</a>
+    <form method="post" action="{% url 'admin:core_teachersalary_delete' instance.pk %}" onsubmit="return confirm('Delete this salary record? This cannot be undone.');" style="margin:0;">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-danger">Delete</button>
+    </form>
+  </div>
+</div>
+
+<div class="panel" style="padding: 28px 32px; margin-bottom: 20px;">
+  <div class="form-grid">
+    <div class="form-field">
+      <span class="form-label">Faculty</span>
+      <div><a href="{% url 'admin:core_faculty_view' instance.teacher.pk %}">{{ instance.teacher.full_name }}</a></div>
+    </div>
+    <div class="form-field">
+      <span class="form-label">Salary Month</span>
+      <div>{{ instance.salary_month|date:"F Y" }}</div>
+    </div>
+    <div class="form-field">
+      <span class="form-label">Payment Method</span>
+      <div>{{ instance.get_payment_method_display }}</div>
+    </div>
+    <div class="form-field">
+      <span class="form-label">Transaction ID</span>
+      <div>{{ instance.transaction_id|default:"—" }}</div>
+    </div>
+    <div class="form-field">
+      <span class="form-label">Payment Date</span>
+      <div>{{ instance.payment_date|date:"d M Y"|default:"— not yet paid" }}</div>
+    </div>
+    <div class="form-field">
+      <span class="form-label">Receipt Number</span>
+      <div>{{ instance.receipt_number|default:"—" }}</div>
+    </div>
+  </div>
+</div>
+
+<p class="section-heading" style="font-size:1.1rem; font-weight:700; margin:0 0 14px;">Salary breakdown</p>
+<div class="panel" style="padding: 28px 32px; margin-bottom: 20px;">
+  <div class="form-grid">
+    <div class="form-field"><span class="form-label">Classes Taken</span><div>{{ instance.classes_taken }}</div></div>
+    <div class="form-field"><span class="form-label">Rate per Class</span><div>৳{{ instance.rate_per_class|floatformat:0 }}</div></div>
+    <div class="form-field"><span class="form-label">Class-Based Pay</span><div>৳{{ instance.class_based_pay|floatformat:0 }}</div></div>
+    <div class="form-field"><span class="form-label">Bonus</span><div>৳{{ instance.bonus|floatformat:0 }}</div></div>
+    <div class="form-field"><span class="form-label">Net Salary</span><div class="code-badge">৳{{ instance.net_salary|floatformat:0 }}</div></div>
+    <div class="form-field"><span class="form-label">Paid Amount</span><div>৳{{ instance.paid_amount|floatformat:0 }}</div></div>
+    <div class="form-field"><span class="form-label">Due Amount</span><div>৳{{ instance.due_amount|floatformat:0 }}</div></div>
+  </div>
+</div>
+
+<div class="panel" style="padding: 28px 32px;">
+  <span class="form-label">Remarks</span>
+  <div style="margin-top:6px;">{{ instance.remarks|default:"—"|linebreaksbr }}</div>
+</div>
+{% endblock %}

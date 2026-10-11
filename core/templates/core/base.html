@@ -322,6 +322,7 @@
             <a href="/admin/" class="block px-4 py-2.5 border-t border-hair mt-1 pt-3 hover:bg-brand/5 hover:text-brand transition-colors">
               {% if request.user.is_staff %}Admin Dashboard{% else %}Admin Login{% endif %}
             </a>
+            <a href="{% url 'password_reset' %}" class="block px-4 py-2.5 hover:bg-brand/5 hover:text-brand transition-colors">Forgot staff password?</a>
           </div>
         </div>
       </div>
@@ -352,6 +353,7 @@
       <a href="/admin/" class="pt-4 mt-2 border-t border-hair !rounded-none">
         {% if request.user.is_staff %}Admin Dashboard{% else %}Admin Login{% endif %}
       </a>
+      <a href="{% url 'password_reset' %}">Forgot staff password?</a>
     </div>
   </nav>
 </header>

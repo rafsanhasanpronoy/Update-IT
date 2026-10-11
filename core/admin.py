@@ -4603,7 +4603,6 @@ _DASHBOARD_LAYOUT = [
         ("Class Schedules", "core_classschedule", lambda: ClassSchedule.objects.count()),
     ]),
     ("Records", [
-        ("Attendance Records", "core_attendance", lambda: Attendance.objects.count()),
         ("Exams", "core_exam", lambda: Exam.objects.count()),
         ("Exam Results", "core_examresult", lambda: ExamResult.objects.count()),
     ]),
@@ -4726,3 +4725,10 @@ def _each_context_with_dashboard(request):
 
 
 admin.site.each_context = _each_context_with_dashboard
+
+# Hide the legacy one-record-at-a-time student attendance admin page.
+# Attendance data remains in the database and is still used by reports.
+try:
+    admin.site.unregister(Attendance)
+except admin.sites.NotRegistered:
+    pass

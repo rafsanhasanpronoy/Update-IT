@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.contrib.auth import login
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db.models import F, Prefetch
@@ -8,6 +9,7 @@ from django.shortcuts import redirect, render
 from django_ratelimit.decorators import ratelimit
 
 from .results import reports_for_student
+from .auth_forms import SignUpForm
 from .forms import (
     AdmissionApplicationForm, AdmissionInquiryForm, ContactMessageForm, StudentLookupForm,
 )
@@ -210,3 +212,22 @@ def student_results(request):
 
     context["form"] = form
     return render(request, "core/results.html", context)
+
+
+@ratelimit(key="ip", rate="5/m", method="POST", block=True)
+def signup(request):
+    """Create a normal user account; public sign-up never grants staff access."""
+    if request.user.is_authenticated:
+        return redirect("home")
+
+    if request.method == "POST":
+        form = SignUpForm(request.POST)
+        if form.is_valid():
+            user = form.save()
+            login(request, user)
+            messages.success(request, "Your account has been created successfully.")
+            return redirect("home")
+    else:
+        form = SignUpForm()
+
+    return render(request, "core/signup.html", {"form": form})

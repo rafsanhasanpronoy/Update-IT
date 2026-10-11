@@ -162,8 +162,17 @@ CACHES = {
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
         },
-    }
+    },
+    # Use local memory for rate limiting so signup and student lookup do not
+    # fail when the optional Upstash Redis hostname is unavailable. Render is
+    # currently configured to run one worker; this cache resets on restart.
+    "ratelimit": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "update-it-ratelimit",
+    },
 }
+
+RATELIMIT_USE_CACHE = "ratelimit"
 
 WSGI_APPLICATION = 'config.wsgi.application'
 

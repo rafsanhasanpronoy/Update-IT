@@ -1,0 +1,32 @@
+{% extends "core/base.html" %}
+{% block title %}Log In | Update IT{% endblock %}
+{% block content %}
+<section class="py-16 md:py-24 px-6">
+  <div class="max-w-lg mx-auto">
+    <div class="text-center mb-8">
+      <p class="text-sm font-bold uppercase tracking-widest text-brand mb-3">Welcome back</p>
+      <h1 class="text-3xl md:text-4xl font-bold mb-3">Log in to your account</h1>
+      <p class="text-muted">Use your Update IT account credentials to continue.</p>
+    </div>
+    <div class="bg-white border border-hair rounded-3xl p-6 md:p-9 shadow-sm">
+      <form method="post" class="space-y-5">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ next }}">
+        {% if form.non_field_errors %}<div class="rounded-xl bg-red-50 text-red-800 p-4 text-sm">{{ form.non_field_errors }}</div>{% endif %}
+        {% for field in form %}
+          <div>
+            <label for="{{ field.id_for_label }}" class="block text-sm font-semibold mb-2">{{ field.label }}</label>
+            {{ field }}
+            {% for error in field.errors %}<p class="text-sm text-red-700 mt-2">{{ error }}</p>{% endfor %}
+          </div>
+        {% endfor %}
+        <button type="submit" class="w-full bg-brand hover:bg-brand-dark text-white font-semibold rounded-xl px-5 py-3 transition-colors">Log in</button>
+      </form>
+      <div class="flex flex-col sm:flex-row justify-between gap-3 text-sm mt-6">
+        <a class="font-semibold text-brand hover:underline" href="{% url 'signup' %}">Create an account</a>
+        <a class="text-muted hover:text-brand" href="{% url 'password_reset' %}">Forgot staff password?</a>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

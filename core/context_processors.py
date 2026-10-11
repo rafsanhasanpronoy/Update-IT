@@ -8,6 +8,9 @@ def academy_branding(request):
     homepage program slider. Empty string for any that aren't set yet."""
     return {
         "ACADEMY_LOGO_URL": settings.ACADEMY_LOGO_URL,
+        "HOME_BANNER_1_IMAGE_URL": settings.HOME_BANNER_1_IMAGE_URL,
+        "HOME_BANNER_2_IMAGE_URL": settings.HOME_BANNER_2_IMAGE_URL,
+        "HOME_BANNER_3_IMAGE_URL": settings.HOME_BANNER_3_IMAGE_URL,
         "PROGRAM_MATH_IMAGE_URL": settings.PROGRAM_MATH_IMAGE_URL,
         "PROGRAM_SCIENCE_IMAGE_URL": settings.PROGRAM_SCIENCE_IMAGE_URL,
         "PROGRAM_KIDS_IMAGE_URL": settings.PROGRAM_KIDS_IMAGE_URL,

@@ -319,9 +319,15 @@
             <a href="{% url 'achievements' %}" class="block px-4 py-2.5 hover:bg-brand/5 hover:text-brand transition-colors">Achievements</a>
             <a href="{% url 'gallery' %}" class="block px-4 py-2.5 hover:bg-brand/5 hover:text-brand transition-colors">Gallery</a>
             <a href="{% url 'contact' %}" class="block px-4 py-2.5 hover:bg-brand/5 hover:text-brand transition-colors">Contact</a>
-            <a href="/admin/" class="block px-4 py-2.5 border-t border-hair mt-1 pt-3 hover:bg-brand/5 hover:text-brand transition-colors">
-              {% if request.user.is_staff %}Admin Dashboard{% else %}Admin Login{% endif %}
-            </a>
+            {% if request.user.is_authenticated %}
+              <span class="block px-4 py-2.5 border-t border-hair mt-1 pt-3 text-muted">Signed in as {{ request.user.username }}</span>
+              {% if request.user.is_staff %}<a href="/admin/" class="block px-4 py-2.5 hover:bg-brand/5 hover:text-brand transition-colors">Admin Dashboard</a>{% endif %}
+              <form method="post" action="{% url 'logout' %}" class="px-4 py-2.5">{% csrf_token %}<button type="submit" class="text-left hover:text-brand">Log out</button></form>
+            {% else %}
+              <a href="{% url 'login' %}" class="block px-4 py-2.5 border-t border-hair mt-1 pt-3 hover:bg-brand/5 hover:text-brand transition-colors">Log in</a>
+              <a href="{% url 'signup' %}" class="block px-4 py-2.5 hover:bg-brand/5 hover:text-brand transition-colors">Sign up</a>
+              <a href="/admin/" class="block px-4 py-2.5 hover:bg-brand/5 hover:text-brand transition-colors">Staff login</a>
+            {% endif %}
             <a href="{% url 'password_reset' %}" class="block px-4 py-2.5 hover:bg-brand/5 hover:text-brand transition-colors">Forgot staff password?</a>
           </div>
         </div>
@@ -350,9 +356,15 @@
       <a href="{% url 'gallery' %}">Gallery</a>
       <a href="{% url 'contact' %}">Contact</a>
       <a href="{% url 'apply' %}" class="btn btn-primary text-center mt-3">Apply Now</a>
-      <a href="/admin/" class="pt-4 mt-2 border-t border-hair !rounded-none">
-        {% if request.user.is_staff %}Admin Dashboard{% else %}Admin Login{% endif %}
-      </a>
+      {% if request.user.is_authenticated %}
+        <span class="px-3 py-2 text-muted">Signed in as {{ request.user.username }}</span>
+        {% if request.user.is_staff %}<a href="/admin/">Admin Dashboard</a>{% endif %}
+        <form method="post" action="{% url 'logout' %}" class="px-3 py-2">{% csrf_token %}<button type="submit">Log out</button></form>
+      {% else %}
+        <a href="{% url 'login' %}" class="pt-4 mt-2 border-t border-hair !rounded-none">Log in</a>
+        <a href="{% url 'signup' %}">Sign up</a>
+        <a href="/admin/">Staff login</a>
+      {% endif %}
       <a href="{% url 'password_reset' %}">Forgot staff password?</a>
     </div>
   </nav>

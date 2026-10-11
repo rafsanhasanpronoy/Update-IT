@@ -7,9 +7,11 @@
 <section class="max-w-6xl mx-auto px-4 sm:px-6 pt-8 md:pt-12" aria-label="Featured banners">
   <div id="homeBannerCarousel" class="relative overflow-hidden rounded-2xl md:rounded-3xl bg-surface shadow-sm" aria-roledescription="carousel" aria-label="Update IT featured banners">
     <div class="relative w-full" style="aspect-ratio: 16 / 9;">
+      {% if HOME_BANNER_1_IMAGE_URL %}
       <div class="home-banner-slide absolute inset-0 transition-opacity duration-700 opacity-100" data-banner-slide>
-        {% if HOME_BANNER_1_IMAGE_URL %}<img src="{{ HOME_BANNER_1_IMAGE_URL }}" alt="Update IT featured banner 1" class="w-full h-full object-cover" fetchpriority="high">{% else %}<div class="w-full h-full bg-surface"></div>{% endif %}
+        <img src="{{ HOME_BANNER_1_IMAGE_URL }}" alt="Update IT featured banner 1" class="w-full h-full object-cover" fetchpriority="high">
       </div>
+      {% endif %}
       {% if HOME_BANNER_2_IMAGE_URL %}
       <div class="home-banner-slide absolute inset-0 transition-opacity duration-700 opacity-0 pointer-events-none" data-banner-slide aria-hidden="true">
         <img src="{{ HOME_BANNER_2_IMAGE_URL }}" alt="Update IT featured banner 2" class="w-full h-full object-cover" loading="lazy">
@@ -77,7 +79,7 @@
       });
     }
     function stopTimer() { if (timer) window.clearInterval(timer); timer = null; }
-    function startTimer() { if (!reducedMotion) timer = window.setInterval(function () { showSlide(current + 1); }, 5000); }
+    function startTimer() { if (!reducedMotion && !timer) timer = window.setInterval(function () { showSlide(current + 1); }, 5000); }
     function restartTimer() { stopTimer(); startTimer(); }
     prevBtn.addEventListener('click', function () { showSlide(current - 1); restartTimer(); });
     nextBtn.addEventListener('click', function () { showSlide(current + 1); restartTimer(); });

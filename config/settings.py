@@ -293,9 +293,14 @@ ACADEMY_LOGO_URL = env("ACADEMY_LOGO_URL", default="")
 # admission"). Leave empty to show only the address and office hours.
 ACADEMY_CONTACT_PHONE = env("ACADEMY_CONTACT_PHONE", default="")
 
-# Same idea as ACADEMY_LOGO_URL, for the 3 program banners on the
-# homepage slider (Math / Science / Kids Academy) — upload each PNG to
-# Supabase, put its public URL in the matching env var.
+# Homepage hero carousel banners — upload each 16:9 image to the
+# public update-it-media bucket in Supabase, then set its public URL in
+# the matching Render environment variable.
+HOME_BANNER_1_IMAGE_URL = env("HOME_BANNER_1_IMAGE_URL", default="")
+HOME_BANNER_2_IMAGE_URL = env("HOME_BANNER_2_IMAGE_URL", default="")
+HOME_BANNER_3_IMAGE_URL = env("HOME_BANNER_3_IMAGE_URL", default="")
+
+# Retain the existing program image settings for any other templates that use them.
 PROGRAM_MATH_IMAGE_URL = env("PROGRAM_MATH_IMAGE_URL", default="")
 PROGRAM_SCIENCE_IMAGE_URL = env("PROGRAM_SCIENCE_IMAGE_URL", default="")
 PROGRAM_KIDS_IMAGE_URL = env("PROGRAM_KIDS_IMAGE_URL", default="")

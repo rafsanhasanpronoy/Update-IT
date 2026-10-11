@@ -1,0 +1,170 @@
+{% extends "admin/core/dashboard_base.html" %}
+{% block title %}Users & Staff — Update IT Admin{% endblock %}
+{% block crumb %}Users & Staff{% endblock %}
+
+{% block extra_head %}
+<style>
+  .users-toolbar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin:0 0 22px; }
+  .users-search { display:flex; gap:8px; flex:1 1 300px; max-width:560px; }
+  .users-search input, .users-filter {
+    min-height:42px; border:1px solid var(--border); border-radius:8px;
+    padding:10px 13px; background:var(--surface); color:var(--text); font:inherit;
+  }
+  .users-search input { width:100%; min-width:0; }
+  .users-search input:focus, .users-filter:focus { outline:2px solid var(--accent-soft-border); border-color:var(--accent); }
+  .users-summary { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin:0 0 12px; color:var(--muted); font-size:.9rem; }
+  .users-table-wrap { overflow-x:auto; border-radius:var(--radius); }
+  .users-table { width:100%; min-width:760px; border-collapse:collapse; font-size:.92rem; }
+  .users-table th { padding:14px 18px; background:var(--surface-2); color:var(--muted); text-align:left; text-transform:uppercase; letter-spacing:.05em; font-size:.72rem; white-space:nowrap; border-bottom:1px solid var(--border); }
+  .users-table td { padding:15px 18px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  .users-table tbody tr:last-child td { border-bottom:0; }
+  .users-table tbody tr:hover { background:#FCF8F8; }
+  .user-identity { display:flex; align-items:center; gap:11px; min-width:180px; }
+  .user-avatar { width:38px; height:38px; border-radius:12px; flex-shrink:0; display:flex; align-items:center; justify-content:center; background:var(--accent-soft); color:var(--accent); font-weight:800; }
+  .user-name { font-weight:700; color:var(--text); }
+  .user-handle { font-size:.8rem; color:var(--muted); margin-top:2px; }
+  .user-pill { display:inline-flex; align-items:center; gap:6px; border-radius:999px; padding:5px 10px; font-size:.78rem; font-weight:700; white-space:nowrap; }
+  .user-pill:before { content:""; width:6px; height:6px; border-radius:50%; background:currentColor; }
+  .pill-staff { background:var(--accent-soft); color:var(--accent-hover); }
+  .pill-user { background:#F1F3F5; color:#59636E; }
+  .pill-active { background:#E8F6ED; color:#247344; }
+  .pill-inactive { background:#FBEAE7; color:#A93226; }
+  .user-actions { display:flex; align-items:center; gap:8px; }
+  .user-actions .btn { white-space:nowrap; }
+  .users-empty { padding:46px 20px; text-align:center; color:var(--muted); }
+  .users-empty-icon { width:52px; height:52px; display:flex; align-items:center; justify-content:center; margin:0 auto 12px; border-radius:16px; background:var(--surface-2); color:var(--accent); font-size:1.4rem; }
+  .users-pagination { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; padding:15px 18px; border-top:1px solid var(--border); }
+  .pagination-links { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .page-link { display:inline-flex; min-width:34px; min-height:34px; padding:6px 10px; align-items:center; justify-content:center; border:1px solid var(--border); border-radius:7px; text-decoration:none; color:var(--text); background:var(--surface); font-size:.86rem; }
+  .page-link:hover { border-color:var(--accent); color:var(--accent); }
+  .page-link.current { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:700; }
+  @media(max-width:640px) {
+    .users-search { flex-basis:100%; max-width:none; }
+    .users-search .btn { padding:10px 13px; }
+    .users-table th, .users-table td { padding:12px; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Users &amp; Staff</h1>
+    <p class="page-sub">Manage account access, staff permissions, and active users.</p>
+  </div>
+  {% if has_add_permission %}
+  <a href="{% url 'admin:auth_user_add' %}" class="btn btn-accent">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+    Add user
+  </a>
+  {% endif %}
+</div>
+
+<form method="get" class="users-toolbar">
+  <div class="users-search">
+    <input type="search" name="{{ cl.search_var }}" value="{{ cl.query }}" placeholder="Search username, name, or email…" aria-label="Search users">
+    <button type="submit" class="btn btn-accent">Search</button>
+  </div>
+  <select class="users-filter" name="is_staff__exact" aria-label="Filter by account type" onchange="this.form.submit()">
+    <option value="">All account types</option>
+    <option value="1" {% if request.GET.is_staff__exact == "1" %}selected{% endif %}>Staff</option>
+    <option value="0" {% if request.GET.is_staff__exact == "0" %}selected{% endif %}>Regular users</option>
+  </select>
+  <select class="users-filter" name="is_active__exact" aria-label="Filter by account status" onchange="this.form.submit()">
+    <option value="">All statuses</option>
+    <option value="1" {% if request.GET.is_active__exact == "1" %}selected{% endif %}>Active</option>
+    <option value="0" {% if request.GET.is_active__exact == "0" %}selected{% endif %}>Inactive</option>
+  </select>
+  {% if cl.query or request.GET.is_staff__exact or request.GET.is_active__exact %}
+  <a href="{% url 'admin:auth_user_changelist' %}" class="btn btn-ghost">Clear</a>
+  {% endif %}
+</form>
+
+<div class="users-summary">
+  <span><strong>{{ cl.result_count }}</strong> account{{ cl.result_count|pluralize }} found</span>
+  {% if cl.result_count %}<span>Page {{ cl.page_num }} of {{ cl.paginator.num_pages }}</span>{% endif %}
+</div>
+
+<div class="panel users-table-wrap">
+  {% if cl.result_list %}
+  <table class="users-table">
+    <thead>
+      <tr>
+        <th>Account</th>
+        <th>Email</th>
+        <th>Access</th>
+        <th>Status</th>
+        <th>Last login</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for user_obj in cl.result_list %}
+      <tr>
+        <td>
+          <div class="user-identity">
+            <div class="user-avatar" aria-hidden="true">{{ user_obj.username|first|upper }}</div>
+            <div>
+              <div class="user-name">{{ user_obj.get_full_name|default:user_obj.username }}</div>
+              <div class="user-handle">@{{ user_obj.username }}</div>
+            </div>
+          </div>
+        </td>
+        <td>{{ user_obj.email|default:"—" }}</td>
+        <td>
+          {% if user_obj.is_superuser %}
+            <span class="user-pill pill-staff">Superuser</span>
+          {% elif user_obj.is_staff %}
+            <span class="user-pill pill-staff">Staff</span>
+          {% else %}
+            <span class="user-pill pill-user">Regular user</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if user_obj.is_active %}<span class="user-pill pill-active">Active</span>
+          {% else %}<span class="user-pill pill-inactive">Inactive</span>{% endif %}
+        </td>
+        <td>{% if user_obj.last_login %}{{ user_obj.last_login|date:"d M Y, H:i" }}{% else %}<span style="color:var(--muted);">Never</span>{% endif %}</td>
+        <td>
+          <div class="user-actions">
+            <a href="{% url 'admin:auth_user_change' user_obj.pk %}" class="btn btn-ghost btn-sm">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+              Manage
+            </a>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="users-empty">
+    <div class="users-empty-icon" aria-hidden="true">◎</div>
+    <strong>No users found</strong>
+    <p style="margin:6px 0 16px;">Try changing your search or filters, or create a new account.</p>
+    {% if has_add_permission %}<a href="{% url 'admin:auth_user_add' %}" class="btn btn-accent">Add user</a>{% endif %}
+  </div>
+  {% endif %}
+
+  {% if cl.multi_page %}
+  <div class="users-pagination">
+    <span style="font-size:.86rem;color:var(--muted);">Showing {{ cl.result_count }} matching accounts</span>
+    <nav class="pagination-links" aria-label="User list pagination">
+      {% if cl.page_num > 1 %}
+        <a class="page-link" href="?p={{ cl.page_num|add:'-1' }}&amp;q={{ cl.query|urlencode }}&amp;is_staff__exact={{ request.GET.is_staff__exact|urlencode }}&amp;is_active__exact={{ request.GET.is_active__exact|urlencode }}" aria-label="Previous page">‹</a>
+      {% endif %}
+      {% for page_number in cl.paginator.page_range %}
+        {% if page_number == cl.page_num %}
+          <span class="page-link current" aria-current="page">{{ page_number }}</span>
+        {% else %}
+          <a class="page-link" href="?p={{ page_number }}&amp;q={{ cl.query|urlencode }}&amp;is_staff__exact={{ request.GET.is_staff__exact|urlencode }}&amp;is_active__exact={{ request.GET.is_active__exact|urlencode }}">{{ page_number }}</a>
+        {% endif %}
+      {% endfor %}
+      {% if cl.page_num < cl.paginator.num_pages %}
+        <a class="page-link" href="?p={{ cl.page_num|add:'1' }}&amp;q={{ cl.query|urlencode }}&amp;is_staff__exact={{ request.GET.is_staff__exact|urlencode }}&amp;is_active__exact={{ request.GET.is_active__exact|urlencode }}" aria-label="Next page">›</a>
+      {% endif %}
+    </nav>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

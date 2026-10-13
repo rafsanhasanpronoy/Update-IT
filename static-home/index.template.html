@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#830000">
+  <meta name="description" content="Update IT — well-organized classes, fair grading, and consistent support for students.">
+  <title>Update IT — Learn with purpose</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root{--brand:#830000;--brand-dark:#5e0000;--ink:#1a1a1a;--muted:#6b7280;--hair:#e7e5e4;--paper:#fff;--surface:#f7f7f5}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font-family:Inter,system-ui,sans-serif}
+    body:before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background-image:linear-gradient(rgba(131,0,0,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(131,0,0,.035) 1px,transparent 1px);background-size:32px 32px;mask-image:radial-gradient(ellipse 80% 60% at 50% 0%,#000 0%,transparent 70%)}
+    h1,h2,h3{font-family:Sora,Inter,sans-serif;letter-spacing:-.035em}a{color:inherit;text-decoration:none}.wrap{width:min(1120px,calc(100% - 40px));margin:auto}
+    header{position:sticky;top:0;z-index:10;background:rgba(255,255,255,.92);backdrop-filter:blur(14px);border-bottom:1px solid var(--hair)}
+    .nav{height:76px;display:flex;align-items:center;justify-content:space-between;gap:20px}.brand{display:flex;align-items:center;gap:12px;font-family:Sora,sans-serif;font-weight:800;font-size:20px}.logo{width:42px;height:42px;object-fit:contain}.logo-fallback{display:grid;place-items:center;width:42px;height:42px;border-radius:50%;background:var(--brand);color:white;font-family:Sora,sans-serif}
+    .navlinks{display:flex;align-items:center;gap:24px;font-size:14px;font-weight:600}.navlinks a:not(.btn):hover{color:var(--brand)}.btn{display:inline-flex;justify-content:center;align-items:center;border-radius:999px;padding:13px 22px;font-weight:700;transition:transform .2s,background .2s,border-color .2s}.btn:hover{transform:translateY(-2px)}.primary{background:var(--brand);color:white;box-shadow:0 10px 24px -12px #83000088}.primary:hover{background:var(--brand-dark)}.outline{border:1px solid var(--hair)}.outline:hover{border-color:var(--brand);color:var(--brand)}
+    .carousel-section{padding-top:30px}.carousel{position:relative;overflow:hidden;border-radius:24px;background:var(--surface);box-shadow:0 12px 40px -28px #1a1a1a55}.stage{position:relative;width:100%;aspect-ratio:16/9}.slide{position:absolute;inset:0;opacity:0;transition:opacity .65s ease;pointer-events:none}.slide.active{opacity:1;pointer-events:auto}.slide img{display:block;width:100%;height:100%;object-fit:cover}.arrow{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:44px;border:0;border-radius:50%;background:#0008;color:#fff;font-size:25px;display:grid;place-items:center;cursor:pointer}.arrow:hover{background:#000b}.prev{left:16px}.next{right:16px}.dots{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);display:flex;gap:9px}.dot{width:8px;height:8px;border:0;border-radius:99px;background:#ffffffa8;cursor:pointer;padding:0}.dot.active{width:24px;background:#fff}
+    .hero{padding:78px 0 76px;display:grid;grid-template-columns:1.25fr .75fr;gap:58px;align-items:center}.eyebrow{display:inline-flex;align-items:center;gap:8px;color:var(--brand);background:#83000012;padding:8px 12px;border-radius:999px;text-transform:uppercase;letter-spacing:.08em;font-size:11px;font-weight:800}.eyebrow:before{content:"";width:6px;height:6px;border-radius:50%;background:var(--brand)}h1{font-size:clamp(42px,5.4vw,68px);line-height:1.06;margin:20px 0 0;font-weight:800}.highlight{color:var(--brand);position:relative;white-space:nowrap}.highlight:after{content:"";position:absolute;left:-.05em;right:-.05em;bottom:.02em;height:.18em;background:#83000030;z-index:-1;transform:skewX(-8deg)}.intro{font-size:18px;line-height:1.8;color:var(--muted);max-width:650px;margin:24px 0 0}.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:30px}.proof{border:1px solid var(--hair);border-radius:22px;padding:30px;background:#fff;box-shadow:0 16px 42px -34px #1a1a1a66}.proof h2{font-size:20px;margin:0 0 22px}.proof ul{list-style:none;padding:0;margin:0;display:grid;gap:18px;font-size:14px;line-height:1.55}.proof li{display:flex;gap:11px;align-items:flex-start}.tick{flex:none;display:grid;place-items:center;width:23px;height:23px;border-radius:50%;background:#eef0fc;color:var(--brand);font-weight:800}
+    .below{border-top:1px solid var(--hair);padding:32px 0 60px;color:var(--muted);font-size:14px;line-height:1.8}.below strong{color:var(--ink)}footer{border-top:1px solid var(--hair);padding:25px 0;color:var(--muted);font-size:12px}
+    @media(max-width:800px){.navlinks a:not(.btn){display:none}.hero{grid-template-columns:1fr;gap:32px;padding:48px 0}.proof{padding:24px}.carousel-section{padding-top:18px}.carousel{border-radius:15px}.arrow{width:35px;height:35px;font-size:21px}.prev{left:9px}.next{right:9px}.dots{bottom:10px}.intro{font-size:16px}.nav{height:68px}.wrap{width:min(100% - 28px,1120px)}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.slide,.btn{transition:none}}
+  </style>
+</head>
+<body>
+<header><div class="wrap nav">
+  <a class="brand" href="#top" aria-label="Update IT home">
+    <img class="logo" src="__ACADEMY_LOGO_URL__" alt="Update IT logo" onerror="this.hidden=true;this.nextElementSibling.hidden=false">
+    <span class="logo-fallback" hidden>U</span><span>Update IT</span>
+  </a>
+  <nav class="navlinks" aria-label="Main navigation">
+    <a href="__BACKEND_BASE_URL__/about/">About</a><a href="__BACKEND_BASE_URL__/admission/">Admission</a><a href="__BACKEND_BASE_URL__/notices/">Notices</a><a class="btn primary" href="__BACKEND_BASE_URL__/apply/">Apply Now</a>
+  </nav>
+</div></header>
+<main id="top">
+  <section class="wrap carousel-section" aria-label="Featured banners">
+    <div class="carousel" id="carousel" aria-roledescription="carousel" aria-label="Update IT featured banners">
+      <div class="stage">
+        <div class="slide active" data-slide><img src="__HOME_BANNER_1_IMAGE_URL__" alt="Update IT featured banner 1" fetchpriority="high"></div>
+        <div class="slide" data-slide><img src="__HOME_BANNER_2_IMAGE_URL__" alt="Update IT featured banner 2" loading="lazy"></div>
+        <div class="slide" data-slide><img src="__HOME_BANNER_3_IMAGE_URL__" alt="Update IT featured banner 3" loading="lazy"></div>
+      </div>
+      <button class="arrow prev" id="prev" aria-label="Previous banner">‹</button><button class="arrow next" id="next" aria-label="Next banner">›</button>
+      <div class="dots" id="dots" aria-label="Choose banner"></div>
+    </div>
+  </section>
+  <section class="wrap hero">
+    <div>
+      <span class="eyebrow">Admissions Open</span>
+      <h1>Each correction<br>moves you <span class="highlight">forward.</span></h1>
+      <p class="intro">Update IT keeps its batches small and closely monitored, with genuine attendance records, genuine exams, and genuine feedback, so improvement is something you can observe rather than merely wish for.</p>
+      <div class="actions"><a class="btn primary" href="__BACKEND_BASE_URL__/apply/">Apply for Admission</a><a class="btn outline" href="__BACKEND_BASE_URL__/about/">Learn More</a></div>
+    </div>
+    <aside class="proof">
+      <h2>Why Students Stay</h2>
+      <ul><li><span class="tick">✓</span><span>Attendance and scores recorded in every class</span></li><li><span class="tick">✓</span><span>Small batches with personal attention from teachers</span></li><li><span class="tick">✓</span><span>Frequent exams graded on a consistent scale</span></li><li><span class="tick">✓</span><span>Guardians kept informed instead of left wondering</span></li></ul>
+    </aside>
+  </section>
+  <section class="below"><div class="wrap"><strong>Ready to take the next step?</strong><br>Visit the full Update IT website to explore classes, check notices, view results, or submit an admission application.</div></section>
+</main>
+<footer><div class="wrap">© <span id="year"></span> Update IT. All rights reserved.</div></footer>
+<script>
+(function(){
+  var carousel=document.getElementById('carousel');
+  var slides=Array.prototype.slice.call(document.querySelectorAll('[data-slide]'));
+  slides.forEach(function(slide){if(!slide.querySelector('img').getAttribute('src')||slide.querySelector('img').getAttribute('src').indexOf('__HOME_BANNER_')===0){slide.hidden=true;}});
+  slides=slides.filter(function(slide){return !slide.hidden;});
+  var dots=document.getElementById('dots'),current=0,timer=null;
+  document.getElementById('year').textContent=new Date().getFullYear();
+  if(!slides.length){carousel.hidden=true;return;}
+  function show(i){current=(i+slides.length)%slides.length;slides.forEach(function(s,n){s.classList.toggle('active',n===current);s.setAttribute('aria-hidden',n===current?'false':'true');});Array.prototype.forEach.call(dots.children,function(d,n){d.classList.toggle('active',n===current);d.setAttribute('aria-current',n===current?'true':'false');});}
+  slides.forEach(function(_,i){var d=document.createElement('button');d.type='button';d.className='dot';d.setAttribute('aria-label','Show banner '+(i+1));d.addEventListener('click',function(){show(i);restart();});dots.appendChild(d);});
+  function stop(){if(timer){clearInterval(timer);timer=null;}}
+  function start(){if(!timer&&slides.length>1&&!window.matchMedia('(prefers-reduced-motion: reduce)').matches)timer=setInterval(function(){show(current+1);},5000);}
+  function restart(){stop();start();}
+  document.getElementById('prev').addEventListener('click',function(){show(current-1);restart();});
+  document.getElementById('next').addEventListener('click',function(){show(current+1);restart();});
+  carousel.addEventListener('mouseenter',stop);carousel.addEventListener('mouseleave',start);carousel.addEventListener('focusin',stop);carousel.addEventListener('focusout',start);
+  show(0);start();
+  if(slides.length<2){document.getElementById('prev').hidden=true;document.getElementById('next').hidden=true;dots.hidden=true;}
+})();
+</script>
+</body>
+</html>

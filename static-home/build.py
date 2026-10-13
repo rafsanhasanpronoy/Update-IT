@@ -1,33 +1,28 @@
-"""Build the Render static landing page from environment-configured public URLs.
+"""Build the static entry page that redirects visitors to the real Django site.
 
-Render Static Sites expose environment variables at build time, not in browser
-JavaScript. This script safely injects those values into the generated HTML.
+The Django homepage remains authoritative, so it retains its exact design,
+database-backed sections, authentication, forms, and routes. Visiting this
+static page immediately navigates to the public Django Web Service, which
+triggers Render's normal wake-up behavior if the free service is asleep.
 """
 import os
 from pathlib import Path
 from html import escape
+from urllib.parse import urlparse
 
 HERE = Path(__file__).resolve().parent
 template_path = HERE / "index.template.html"
-output_dir = HERE / "dist"
-output_path = output_dir / "index.html"
+output_path = HERE / "dist" / "index.html"
 
-values = {
-    "__ACADEMY_LOGO_URL__": os.environ.get("ACADEMY_LOGO_URL", "").strip(),
-    "__HOME_BANNER_1_IMAGE_URL__": os.environ.get("HOME_BANNER_1_IMAGE_URL", "").strip(),
-    "__HOME_BANNER_2_IMAGE_URL__": os.environ.get("HOME_BANNER_2_IMAGE_URL", "").strip(),
-    "__HOME_BANNER_3_IMAGE_URL__": os.environ.get("HOME_BANNER_3_IMAGE_URL", "").strip(),
-    "__BACKEND_BASE_URL__": os.environ.get(
-        "BACKEND_BASE_URL", "https://update-it-o0xz.onrender.com"
-    ).strip().rstrip("/"),
-}
+backend_url = os.environ.get(
+    "BACKEND_BASE_URL", "https://update-it-o0xz.onrender.com"
+).strip().rstrip("/")
+parsed = urlparse(backend_url)
+if parsed.scheme not in ("https", "http") or not parsed.netloc:
+    raise SystemExit("BACKEND_BASE_URL must be a full http:// or https:// URL")
 
 html = template_path.read_text(encoding="utf-8")
-for token, value in values.items():
-    html = html.replace(token, escape(value, quote=True))
-
-output_dir.mkdir(parents=True, exist_ok=True)
+html = html.replace("__BACKEND_BASE_URL__", escape(backend_url, quote=True))
+output_path.parent.mkdir(parents=True, exist_ok=True)
 output_path.write_text(html, encoding="utf-8")
-print(f"Built {output_path}")
-for key, value in values.items():
-    print(f"{key[2:-2]}: {'configured' if value else 'not configured'}")
+print(f"Built static redirect to {backend_url}/")

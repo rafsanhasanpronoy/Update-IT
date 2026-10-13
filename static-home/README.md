@@ -1,7 +1,9 @@
-# Update IT static landing page
+# Update IT static entry page
 
-This folder is a separate static landing page. It does not replace the Django
-homepage or run Django views.
+This static site intentionally redirects visitors to the existing Django Web
+Service instead of recreating the homepage. That is the reliable way to show
+the exact real Update IT design and preserve live database content, login,
+forms, notices, results, and the rest of the existing routes.
 
 ## Render Static Site settings
 
@@ -10,22 +12,19 @@ homepage or run Django views.
 - Build Command: `python static-home/build.py`
 - Publish Directory: `static-home/dist`
 
-## Environment variables for the Static Site
+## Environment variable for the Static Site
 
-Add these in the Render Static Site's own Environment settings. Static Site
-environment variables are available to the build process; they are not exposed
-to browser JavaScript automatically.
+Add this in the Static Site's own Environment settings:
 
-- `ACADEMY_LOGO_URL`: public URL of the Update IT logo in Supabase Storage
-- `HOME_BANNER_1_IMAGE_URL`: public URL of banner 1
-- `HOME_BANNER_2_IMAGE_URL`: public URL of banner 2
-- `HOME_BANNER_3_IMAGE_URL`: public URL of banner 3
-- `BACKEND_BASE_URL`: existing Django Web Service URL (default in build script:
-  `https://update-it-o0xz.onrender.com`)
+- `BACKEND_BASE_URL`: the public URL of your existing Django Web Service,
+  for example `https://update-it-o0xz.onrender.com`
 
-Use the same public image URLs as the Django service, but add the variables
-separately to the Static Site. Changing environment variables triggers a
-static-site rebuild/deploy.
+The visitor lands on the static URL first; the redirect then requests the
+Django homepage. That request wakes a sleeping free Web Service according to
+Render's normal behavior. A cold start may take around a minute, and the
+static site cannot make Django start instantly or guarantee that every request
+succeeds on the first try.
 
-The public landing page links admission, about, and notices to Django. Dynamic
-database content, login, forms, results, and admin remain on Django.
+Keep the existing Django Web Service and its templates unchanged. Do not rename
+`core/templates/core/home.html` to `index.html`; Django must continue to
+render that template.

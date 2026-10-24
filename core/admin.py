@@ -1035,13 +1035,10 @@ class StudentAdmin(admin.ModelAdmin):
 
     def preview_code_view(self, request):
         """
-        AJAX endpoint the Add Student form calls (via fetch) whenever
-        Class or Batch changes, so staff see what student_code WILL be
-        before saving. Reuses _generate_student_code directly rather
-        than duplicating the logic in JS, so the preview can never
-        drift out of sync with what actually gets saved. It's still
-        just a preview — the real code is generated again at save time,
-        which is what actually reserves it.
+        AJAX endpoint the Add Student form calls whenever the class,
+        group, or admission year changes. It reuses _generate_student_code
+        so the preview matches the code-generation rules. This is only a
+        preview; the ID is generated again when the student is saved.
         """
         if not self.has_add_permission(request):
             raise PermissionDenied

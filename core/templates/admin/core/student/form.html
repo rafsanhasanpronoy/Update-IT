@@ -177,7 +177,8 @@
 <script>
 (function () {
   var classSelect = document.getElementById('{{ form.class_obj.id_for_label }}');
-  var batchSelect = document.getElementById('{{ form.batch.id_for_label }}');
+  var groupInput = document.getElementById('{{ form.group.id_for_label }}');
+  var admissionDateInput = document.getElementById('{{ form.admission_date.id_for_label }}');
   var badge = document.getElementById('codePreviewBadge');
   var text = document.getElementById('codePreviewText');
   var note = document.getElementById('codePreviewNote');
@@ -185,14 +186,16 @@
 
   function updatePreview() {
     var classId = classSelect.value;
-    if (!classId) {
+    var group = groupInput ? groupInput.value : '';
+    if (!classId || !group.trim()) {
       badge.style.display = 'none';
       note.style.display = 'none';
       return;
     }
     var url = "{% url 'admin:core_student_preview_code' %}?class_obj=" + encodeURIComponent(classId);
-    if (batchSelect && batchSelect.value) {
-      url += "&batch=" + encodeURIComponent(batchSelect.value);
+    url += "&group=" + encodeURIComponent(group);
+    if (admissionDateInput && admissionDateInput.value) {
+      url += "&admission_date=" + encodeURIComponent(admissionDateInput.value);
     }
     fetch(url)
       .then(function (r) { return r.json(); })
@@ -210,7 +213,11 @@
   }
 
   classSelect.addEventListener('change', updatePreview);
-  if (batchSelect) batchSelect.addEventListener('change', updatePreview);
+  if (groupInput) {
+    groupInput.addEventListener('input', updatePreview);
+    groupInput.addEventListener('change', updatePreview);
+  }
+  if (admissionDateInput) admissionDateInput.addEventListener('change', updatePreview);
   updatePreview();
 })();
 </script>

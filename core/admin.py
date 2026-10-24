@@ -657,26 +657,39 @@ def _pagination_range(current, total, window=2):
     return pages
 
 
-def _generate_student_code(class_obj, batch):
-    """
-    Builds codes like UIT4B1001 — Update IT, Class 4, 1st batch of that
-    class, 1st student in that class+batch. Staff never type this in.
-    """
-    class_num = _extract_number(class_obj.class_name, default=class_obj.id)
+def _student_group_letter(group):
+    """Map group names/abbreviations to the ID letter requested by the academy."""
+    normalized = re.sub(r"[^a-z]", "", str(group or "").strip().lower())
+    if not normalized:
+        return None
+    # Humanities/social-science wording must be checked before "science".
+    if normalized in {"h", "humanities", "humanity", "arts", "art", "humanitiesarts"}:
+        return "H"
+    if "humanit" in normalized or normalized.startswith("arts"):
+        return "H"
+    if normalized in {"b", "business", "businessstudies", "commerce"}:
+        return "B"
+    if "business" in normalized or "commerce" in normalized:
+        return "B"
+    if normalized == "s" or "science" in normalized:
+        return "S"
+    return None
 
-    if batch:
-        sibling_ids = list(
-            Batch.objects.filter(class_obj=class_obj).order_by("id").values_list("id", flat=True)
-        )
-        batch_num = sibling_ids.index(batch.id) + 1 if batch.id in sibling_ids else 1
-    else:
-        batch_num = 0  # no batch assigned yet
 
-    prefix = f"UIT{class_num}B{batch_num}"
+def _generate_student_code(class_obj, group, admission_date=None):
+    """
+    Builds IDs like 26S001, 26B001, and 26H001. Uses admission_date's year
+    when supplied, otherwise the class academic year. Numbering is sequential
+    within each year and group. Returns None for an unrecognized group.
+    """
+    group_letter = _student_group_letter(group)
+    if not group_letter:
+        return None
+
+    year = admission_date.year if admission_date else class_obj.academic_year
+    prefix = f"{year % 100:02d}{group_letter}"
     seq = Student.objects.filter(student_code__startswith=prefix).count() + 1
     code = f"{prefix}{seq:03d}"
-
-    # Guards against a stale count after deletions causing a collision.
     while Student.objects.filter(student_code=code).exists():
         seq += 1
         code = f"{prefix}{seq:03d}"
@@ -743,6 +756,7 @@ BULK_STUDENT_NEW_HEADERS = [
     "School / College Name",
     "Blood Group",
     "Reference (optional)",
+    "Group / Subject",
 ]
 
 BULK_STUDENT_HEADERS = BULK_STUDENT_LEGACY_HEADERS + BULK_STUDENT_NEW_HEADERS
@@ -969,22 +983,33 @@ class StudentAdmin(admin.ModelAdmin):
                 if not instance:
                     # Only generate a code for brand-new students — never
                     # regenerate one for an existing student on edit.
-                    student.student_code = _generate_student_code(
-                        student.class_obj, student.batch
+                    generated_code = _generate_student_code(
+                        student.class_obj, student.group, student.admission_date
                     )
-                student.save()
-                if application is not None:
-                    application.status = "Admitted"
-                    application.student = student
-                    application.save(update_fields=["status", "student"])
-                self.message_user(
-                    request,
-                    f"Student was {'updated' if instance else 'added'}."
-                    + (f" Application {application.reference_code} marked Admitted."
-                       if application is not None else ""),
-                    level=messages.SUCCESS,
-                )
-                return redirect("admin:core_student_changelist")
+                    if not generated_code:
+                        form.add_error(
+                            "group",
+                            "Choose Science, Business Studies, or Arts / Humanities "
+                            "so the student ID can be generated correctly.",
+                        )
+                    else:
+                        student.student_code = generated_code
+
+                # Do not save a new student until a valid ID can be generated.
+                if instance or student.student_code:
+                    student.save()
+                    if application is not None:
+                        application.status = "Admitted"
+                        application.student = student
+                        application.save(update_fields=["status", "student"])
+                    self.message_user(
+                        request,
+                        f"Student was {'updated' if instance else 'added'}."
+                        + (f" Application {application.reference_code} marked Admitted."
+                           if application is not None else ""),
+                        level=messages.SUCCESS,
+                    )
+                    return redirect("admin:core_student_changelist")
         else:
             initial = _student_initial_from_application(application) if application else {}
             form = StudentForm(instance=instance, initial=initial)
@@ -1026,9 +1051,16 @@ class StudentAdmin(admin.ModelAdmin):
         class_obj = Class.objects.filter(pk=class_id).first()
         if not class_obj:
             return JsonResponse({"code": None})
-        batch_id = request.GET.get("batch")
-        batch = Batch.objects.filter(pk=batch_id, class_obj=class_obj).first() if batch_id else None
-        return JsonResponse({"code": _generate_student_code(class_obj, batch)})
+        group = request.GET.get("group", "")
+        admission_date = None
+        admission_date_raw = request.GET.get("admission_date", "").strip()
+        if admission_date_raw:
+            try:
+                admission_date = date.fromisoformat(admission_date_raw)
+            except ValueError:
+                return JsonResponse({"code": None})
+        code = _generate_student_code(class_obj, group, admission_date)
+        return JsonResponse({"code": code})
 
     def bulk_template_view(self, request):
         if not self.has_add_permission(request):
@@ -1042,7 +1074,7 @@ class StudentAdmin(admin.ModelAdmin):
             "2014-05-12", "01700000000", "John Doe", "01700000001",
             "Mary Doe", "01700000002", "House 12, Road 4, Dhaka",
             "2026-01-10", "Active",
-            "Dhaka Residential School", "O+", "",
+            "Dhaka Residential School", "O+", "", "Science",
         ])
         for col_idx in range(1, len(BULK_STUDENT_HEADERS) + 1):
             sheet.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = 24
@@ -1063,6 +1095,17 @@ class StudentAdmin(admin.ModelAdmin):
         )
         sheet.add_data_validation(blood_validation)
         blood_validation.add(f"P2:P{last_row}")
+
+        group_validation = DataValidation(
+            type="list",
+            formula1='"Science,Business Studies,Humanities / Arts"',
+            allow_blank=False,
+            showErrorMessage=True,
+            errorTitle="Group / Subject",
+            error="Choose Science, Business Studies, or Humanities / Arts.",
+        )
+        sheet.add_data_validation(group_validation)
+        group_validation.add(f"R2:R{last_row}")
 
         buffer = BytesIO()
         workbook.save(buffer)
@@ -1123,14 +1166,14 @@ class StudentAdmin(admin.ModelAdmin):
                 "The column headers differ from the template. Please download the template below and use it unchanged, adding your rows underneath."
             ]}
 
-        # Old 14-column files are still accepted. If ANY of the newer
-        # columns are present, all three must be there and correctly named.
+        # Legacy 14-column files and the previous 17-column template are
+        # still recognized, but a group is required for the new student ID.
         expected_new = [h.split(" (")[0] for h in BULK_STUDENT_NEW_HEADERS]
         got_new = [h.split(" (")[0] for h in header_row[legacy_count:len(BULK_STUDENT_HEADERS)]]
         has_new_columns = any(got_new)
-        if has_new_columns and got_new != expected_new:
+        if has_new_columns and got_new not in [expected_new[:3], expected_new]:
             return {"created_count": 0, "created": [], "errors": [
-                "The newer columns (School / College Name, Blood Group, Reference) differ from the template. Please download the latest template and use it unchanged."
+                "The newer columns differ from the template. Please download the latest template and use it unchanged."
             ]}
 
         created = []
@@ -1145,7 +1188,7 @@ class StudentAdmin(admin.ModelAdmin):
             (full_name, class_name, academic_year, batch_name, gender,
              dob, phone, father_name, father_phone, mother_name,
              mother_phone, address, admission_date, status,
-             institution_name, blood_group_raw, reference) = (
+             institution_name, blood_group_raw, reference, group_subject) = (
                 list(row) + [None] * (len(BULK_STUDENT_HEADERS) - len(row))
             )[:len(BULK_STUDENT_HEADERS)]
 
@@ -1245,6 +1288,7 @@ class StudentAdmin(admin.ModelAdmin):
                 class_obj=class_obj,
                 batch=batch,
                 full_name=full_name,
+                group=str(group_subject).strip() if group_subject else "",
                 gender=resolved_gender,
                 date_of_birth=dob_date,
                 student_phone=_clean_phone(phone),
@@ -1265,7 +1309,15 @@ class StudentAdmin(admin.ModelAdmin):
                 errors.append(f"Row {row_num} ({full_name}): {'; '.join(exc.messages)} — skipped.")
                 continue
 
-            student.student_code = _generate_student_code(class_obj, batch)
+            student.student_code = _generate_student_code(
+                class_obj, student.group, student.admission_date
+            )
+            if not student.student_code:
+                errors.append(
+                    f"Row {row_num} ({full_name}): Group / Subject must be Science, "
+                    "Business Studies, or Humanities / Arts to generate the student ID; the row was skipped."
+                )
+                continue
             student.save()
             created.append((student.full_name, student.student_code))
 

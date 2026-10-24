@@ -347,7 +347,7 @@ class StudentForm(TailwindStyledFormMixin, forms.ModelForm):
         self.fields["batch"].required = False
         self.fields["batch"].empty_label = "Choose a batch (optional)"
         self.fields["group"].required = False
-        self.fields["group"].label = "Group / Year"
+        self.fields["group"].label = "Group / Subject"
         self.fields["group"].widget = forms.TextInput(
             attrs={"placeholder": "Science, Business Studies, or Humanities / Arts"}
         )

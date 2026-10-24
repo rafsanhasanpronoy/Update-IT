@@ -349,7 +349,7 @@ class StudentForm(TailwindStyledFormMixin, forms.ModelForm):
         self.fields["group"].required = False
         self.fields["group"].label = "Group / Year"
         self.fields["group"].widget = forms.TextInput(
-            attrs={"placeholder": "e.g. Science, Business Studies, Humanities, or Honours 1st Year"}
+            attrs={"placeholder": "Science, Business Studies, or Humanities / Arts"}
         )
         self.fields["photo_url"].required = False
         self.fields["photo_url"].label = "Photo URL (alternatively, paste a link)"

@@ -178,7 +178,6 @@
 (function () {
   var classSelect = document.getElementById('{{ form.class_obj.id_for_label }}');
   var groupInput = document.getElementById('{{ form.group.id_for_label }}');
-  var admissionDateInput = document.getElementById('{{ form.admission_date.id_for_label }}');
   var badge = document.getElementById('codePreviewBadge');
   var text = document.getElementById('codePreviewText');
   var note = document.getElementById('codePreviewNote');
@@ -194,9 +193,6 @@
     }
     var url = "{% url 'admin:core_student_preview_code' %}?class_obj=" + encodeURIComponent(classId);
     url += "&group=" + encodeURIComponent(group);
-    if (admissionDateInput && admissionDateInput.value) {
-      url += "&admission_date=" + encodeURIComponent(admissionDateInput.value);
-    }
     fetch(url)
       .then(function (r) { return r.json(); })
       .then(function (data) {
@@ -217,7 +213,6 @@
     groupInput.addEventListener('input', updatePreview);
     groupInput.addEventListener('change', updatePreview);
   }
-  if (admissionDateInput) admissionDateInput.addEventListener('change', updatePreview);
   updatePreview();
 })();
 </script>

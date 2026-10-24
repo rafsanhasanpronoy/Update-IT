@@ -676,17 +676,17 @@ def _student_group_letter(group):
     return None
 
 
-def _generate_student_code(class_obj, group, admission_date=None):
+def _generate_student_code(class_obj, group):
     """
-    Builds IDs like 26S001, 26B001, and 26H001. Uses admission_date's year
-    when supplied, otherwise the class academic year. Numbering is sequential
-    within each year and group. Returns None for an unrecognized group.
+    Builds IDs like 26S001, 26B001, and 26H001 using the selected class's
+    academic year. Numbering is sequential within each academic year and
+    group. Returns None for an unrecognized group.
     """
     group_letter = _student_group_letter(group)
     if not group_letter:
         return None
 
-    year = admission_date.year if admission_date else class_obj.academic_year
+    year = class_obj.academic_year
     prefix = f"{year % 100:02d}{group_letter}"
     seq = Student.objects.filter(student_code__startswith=prefix).count() + 1
     code = f"{prefix}{seq:03d}"
@@ -983,9 +983,7 @@ class StudentAdmin(admin.ModelAdmin):
                 if not instance:
                     # Only generate a code for brand-new students — never
                     # regenerate one for an existing student on edit.
-                    generated_code = _generate_student_code(
-                        student.class_obj, student.group, student.admission_date
-                    )
+                    generated_code = _generate_student_code(student.class_obj, student.group)
                     if not generated_code:
                         form.add_error(
                             "group",
@@ -1049,14 +1047,7 @@ class StudentAdmin(admin.ModelAdmin):
         if not class_obj:
             return JsonResponse({"code": None})
         group = request.GET.get("group", "")
-        admission_date = None
-        admission_date_raw = request.GET.get("admission_date", "").strip()
-        if admission_date_raw:
-            try:
-                admission_date = date.fromisoformat(admission_date_raw)
-            except ValueError:
-                return JsonResponse({"code": None})
-        code = _generate_student_code(class_obj, group, admission_date)
+        code = _generate_student_code(class_obj, group)
         return JsonResponse({"code": code})
 
     def bulk_template_view(self, request):
@@ -1306,9 +1297,7 @@ class StudentAdmin(admin.ModelAdmin):
                 errors.append(f"Row {row_num} ({full_name}): {'; '.join(exc.messages)} — skipped.")
                 continue
 
-            student.student_code = _generate_student_code(
-                class_obj, student.group, student.admission_date
-            )
+            student.student_code = _generate_student_code(class_obj, student.group)
             if not student.student_code:
                 errors.append(
                     f"Row {row_num} ({full_name}): Group / Subject must be Science, "

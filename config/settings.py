@@ -234,8 +234,8 @@ STORAGES = {
         "OPTIONS": {
             "access_key": env("AWS_ACCESS_KEY_ID"),
             "secret_key": env("AWS_SECRET_ACCESS_KEY"),
-            "bucket_name": env("AWS_STORAGE_BUCKET_NAME"),
-            "endpoint_url": env("AWS_S3_ENDPOINT_URL"),
+            "bucket_name": env("AWS_STORAGE_BUCKET_NAME", default="update-it"),
+            "endpoint_url": env("AWS_S3_ENDPOINT_URL", default="https://rscxskiekqhbjjsnatmf.supabase.co/storage/v1/s3"),
             "region_name": env("AWS_S3_REGION_NAME"),
             "querystring_auth": False,
             "file_overwrite": True,
@@ -246,7 +246,7 @@ STORAGES = {
             # serves from its OWN storage. The default below is the current live project.
             "custom_domain": env(
                 "MEDIA_CUSTOM_DOMAIN",
-                default="rhwmfcdvkikyyroknspq.supabase.co/storage/v1/object/public/update-it-media",
+                default="rscxskiekqhbjjsnatmf.supabase.co/storage/v1/object/public/update-it",
             ),
         },
     },

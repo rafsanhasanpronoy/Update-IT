@@ -1,25 +1,25 @@
 {% extends "core/base.html" %}
-{% block title %}Update IT — Home{% endblock %}
+{% block title %}Update Academic Care — Home{% endblock %}
 
 {% block content %}
 
 {% if HOME_BANNER_1_IMAGE_URL or HOME_BANNER_2_IMAGE_URL or HOME_BANNER_3_IMAGE_URL %}
 <section class="max-w-6xl mx-auto px-4 sm:px-6 pt-8 md:pt-12" aria-label="Featured banners">
-  <div id="homeBannerCarousel" class="relative overflow-hidden rounded-2xl md:rounded-3xl bg-surface shadow-sm" aria-roledescription="carousel" aria-label="Update IT featured banners">
+  <div id="homeBannerCarousel" class="relative overflow-hidden rounded-2xl md:rounded-3xl bg-surface shadow-sm" aria-roledescription="carousel" aria-label="Update Academic Care featured banners">
     <div class="relative w-full" style="aspect-ratio: 16 / 9;">
       {% if HOME_BANNER_1_IMAGE_URL %}
       <div class="home-banner-slide absolute inset-0 transition-opacity duration-700 opacity-100" data-banner-slide>
-        <img src="{{ HOME_BANNER_1_IMAGE_URL }}" alt="Update IT featured banner 1" class="w-full h-full object-cover" fetchpriority="high">
+        <img src="{{ HOME_BANNER_1_IMAGE_URL }}" alt="Update Academic Care featured banner 1" class="w-full h-full object-cover" fetchpriority="high">
       </div>
       {% endif %}
       {% if HOME_BANNER_2_IMAGE_URL %}
       <div class="home-banner-slide absolute inset-0 transition-opacity duration-700 opacity-0 pointer-events-none" data-banner-slide aria-hidden="true">
-        <img src="{{ HOME_BANNER_2_IMAGE_URL }}" alt="Update IT featured banner 2" class="w-full h-full object-cover" loading="lazy">
+        <img src="{{ HOME_BANNER_2_IMAGE_URL }}" alt="Update Academic Care featured banner 2" class="w-full h-full object-cover" loading="lazy">
       </div>
       {% endif %}
       {% if HOME_BANNER_3_IMAGE_URL %}
       <div class="home-banner-slide absolute inset-0 transition-opacity duration-700 opacity-0 pointer-events-none" data-banner-slide aria-hidden="true">
-        <img src="{{ HOME_BANNER_3_IMAGE_URL }}" alt="Update IT featured banner 3" class="w-full h-full object-cover" loading="lazy">
+        <img src="{{ HOME_BANNER_3_IMAGE_URL }}" alt="Update Academic Care featured banner 3" class="w-full h-full object-cover" loading="lazy">
       </div>
       {% endif %}
     </div>
@@ -103,7 +103,7 @@
       moves you <span class="highlight text-brand">forward.</span>
     </h1>
     <p data-load-reveal class="mt-6 text-lg text-muted max-w-lg leading-relaxed">
-      Update IT keeps its batches small and closely monitored, with genuine attendance records, genuine exams, and genuine feedback, so improvement is something you can observe rather than merely wish for.
+      Update Academic Care keeps its batches small and closely monitored, with genuine attendance records, genuine exams, and genuine feedback, so improvement is something you can observe rather than merely wish for.
     </p>
     <div data-load-reveal class="mt-9 flex flex-wrap gap-4">
       <a href="{% url 'apply' %}"

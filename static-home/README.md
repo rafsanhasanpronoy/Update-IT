@@ -1,8 +1,8 @@
-# Update IT static entry page
+# Update Academic Care static entry page
 
 This static site intentionally redirects visitors to the existing Django Web
 Service instead of recreating the homepage. That is the reliable way to show
-the exact real Update IT design and preserve live database content, login,
+the exact real Update Academic Care design and preserve live database content, login,
 forms, notices, results, and the rest of the existing routes.
 
 ## Render Static Site settings

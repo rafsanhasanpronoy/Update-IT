@@ -1,4 +1,4 @@
-# Update IT — Educational Institute Management System
+# Update Academic Care — Educational Institute Management System
 
 A Django-based platform for running an educational institute. It brings students, faculty, attendance, academics, fees, payroll, notices, admissions, achievements, galleries, and everyday administration together in a single central dashboard.
 

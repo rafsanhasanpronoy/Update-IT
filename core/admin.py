@@ -58,8 +58,8 @@ from .models import (
 # Site branding
 # ---------------------------------------------------------
 
-admin.site.site_header = "Update Academic Care Admin"
-admin.site.site_title = "Update Academic Care Admin"
+admin.site.site_header = "UAC Admin"
+admin.site.site_title = "UAC Admin"
 admin.site.index_title = "Dashboard"
 
 

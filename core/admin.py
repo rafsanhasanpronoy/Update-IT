@@ -58,8 +58,8 @@ from .models import (
 # Site branding
 # ---------------------------------------------------------
 
-admin.site.site_header = "Update IT Admin"
-admin.site.site_title = "Update IT Admin"
+admin.site.site_header = "Update Academic Care Admin"
+admin.site.site_title = "Update Academic Care Admin"
 admin.site.index_title = "Dashboard"
 
 
@@ -927,7 +927,7 @@ class StudentAdmin(admin.ModelAdmin):
         )
         context = {
             "student": student,
-            "academy_name": "Update IT",
+            "academy_name": "Update Academic Care",
             "generated_at": timezone.localtime(),
         }
         return TemplateResponse(request, "admin/core/student_admission_form.html", context)
@@ -2540,7 +2540,7 @@ class StudentPaymentAdmin(admin.ModelAdmin):
         )
         context = {
             "payment": payment,
-            "academy_name": "Update IT",
+            "academy_name": "Update Academic Care",
             "generated_at": timezone.localtime(),
         }
         return TemplateResponse(request, "admin/core/payment_receipt.html", context)
@@ -2879,7 +2879,7 @@ class StudentPaymentReceiptAdmin(admin.ModelAdmin):
         )
         context = {
             "receipt": receipt,
-            "academy_name": "Update IT",
+            "academy_name": "Update Academic Care",
             "generated_at": timezone.localtime(),
         }
         return TemplateResponse(request, "admin/core/student_payment_receipt.html", context)
@@ -3314,7 +3314,7 @@ class TeacherSalaryAdmin(admin.ModelAdmin):
         )
         context = {
             "salary": salary,
-            "academy_name": "Update IT",
+            "academy_name": "Update Academic Care",
             "generated_at": timezone.localtime(),
         }
         return TemplateResponse(request, "admin/core/salary_receipt.html", context)
@@ -3424,7 +3424,7 @@ class TeacherSalaryAdmin(admin.ModelAdmin):
         right_style = ParagraphStyle("SlipRight", parent=styles["Normal"], alignment=TA_RIGHT)
 
         title_block = [
-            Paragraph("Update IT", title_style),
+            Paragraph("Update Academic Care", title_style),
             Paragraph("Salary Slip", sub_style),
         ]
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{% block title %}Update IT{% endblock %}</title>
+<title>{% block title %}Update Academic Care{% endblock %}</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -296,11 +296,11 @@
   <div class="max-w-6xl mx-auto px-6 flex items-center justify-between h-20">
     <a href="{% url 'home' %}" class="flex items-center gap-3">
       {% if ACADEMY_LOGO_URL %}
-      <img src="{{ ACADEMY_LOGO_URL }}" alt="Update IT" class="w-10 h-10 object-contain">
+      <img src="{{ ACADEMY_LOGO_URL }}" alt="Update Academic Care" class="w-10 h-10 object-contain">
       {% else %}
       <span class="w-10 h-10 rounded-full bg-gradient-to-br from-brand to-brand-dark text-white flex items-center justify-center font-display font-bold text-lg shadow-lg shadow-brand/30">U</span>
       {% endif %}
-      <span class="font-display font-bold text-xl tracking-tight whitespace-nowrap">Update IT</span>
+      <span class="font-display font-bold text-xl tracking-tight whitespace-nowrap">Update Academic Care</span>
     </a>
     <nav class="hidden xl:flex items-center gap-1 text-sm font-semibold">
       <a href="{% url 'home' %}" class="nav-link transition-colors">Home</a>
@@ -389,11 +389,11 @@
     <div>
       <div class="flex items-center gap-3 mb-4">
         {% if ACADEMY_LOGO_URL %}
-        <img src="{{ ACADEMY_LOGO_URL }}" alt="Update IT" class="w-9 h-9 object-contain">
+        <img src="{{ ACADEMY_LOGO_URL }}" alt="Update Academic Care" class="w-9 h-9 object-contain">
         {% else %}
         <span class="w-9 h-9 rounded-full bg-gradient-to-br from-brand to-brand-dark text-white flex items-center justify-center font-display font-bold">U</span>
         {% endif %}
-        <span class="font-display font-bold text-lg">Update IT</span>
+        <span class="font-display font-bold text-lg">Update Academic Care</span>
       </div>
       <p class="text-sm text-muted leading-relaxed">
         Well-organized classes, fair grading, and consistent support — made for students who truly want to get better.
@@ -418,7 +418,7 @@
   </div>
   <div class="border-t border-hair" style="border-radius:0;">
     <p class="max-w-6xl mx-auto px-6 py-5 text-xs text-muted">
-      &copy; {% now "Y" %} Update IT. All rights are reserved.
+      &copy; {% now "Y" %} Update Academic Care. All rights are reserved.
     </p>
   </div>
 </footer>

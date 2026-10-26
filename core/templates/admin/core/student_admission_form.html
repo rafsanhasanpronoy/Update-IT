@@ -15,11 +15,26 @@
     background: #f4f4f4;
   }
   .sheet {
+    position: relative;
+    isolation: isolate;
     max-width: 700px;
     margin: 0 auto;
     background: #fff;
     border: 1px solid rgba(0,0,0,0.08);
     padding: 44px 48px;
+  }
+  .watermark {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: min(68%, 360px);
+    height: auto;
+    max-height: 420px;
+    object-fit: contain;
+    transform: translate(-50%, -50%);
+    opacity: 0.10;
+    pointer-events: none;
+    z-index: -1;
   }
   .sheet-header {
     display: flex;
@@ -166,6 +181,9 @@
 </div>
 
 <div class="sheet">
+  {% if ACADEMY_LOGO_URL %}
+  <img class="watermark" src="{{ ACADEMY_LOGO_URL }}" alt="" aria-hidden="true">
+  {% endif %}
   <div class="sheet-header">
     <div class="brand-mark">
       {% if ACADEMY_LOGO_URL %}

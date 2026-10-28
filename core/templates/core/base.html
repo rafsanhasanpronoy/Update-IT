@@ -321,6 +321,7 @@
             <a href="{% url 'contact' %}" class="block px-4 py-2.5 hover:bg-brand/5 hover:text-brand transition-colors">Contact</a>
             {% if request.user.is_authenticated %}
               <span class="block px-4 py-2.5 border-t border-hair mt-1 pt-3 text-muted">Signed in as {{ request.user.username }}</span>
+              <a href="{% url 'profile' %}" class="block px-4 py-2.5 hover:bg-brand/5 hover:text-brand transition-colors">My Profile</a>
               {% if request.user.is_staff %}<a href="/admin/" class="block px-4 py-2.5 hover:bg-brand/5 hover:text-brand transition-colors">Admin Dashboard</a>{% endif %}
               <form method="post" action="{% url 'logout' %}" class="px-4 py-2.5">{% csrf_token %}<button type="submit" class="text-left hover:text-brand">Log out</button></form>
             {% else %}
@@ -358,6 +359,7 @@
       <a href="{% url 'apply' %}" class="btn btn-primary text-center mt-3">Apply Now</a>
       {% if request.user.is_authenticated %}
         <span class="px-3 py-2 text-muted">Signed in as {{ request.user.username }}</span>
+        <a href="{% url 'profile' %}" class="px-3 py-2">My Profile</a>
         {% if request.user.is_staff %}<a href="/admin/">Admin Dashboard</a>{% endif %}
         <form method="post" action="{% url 'logout' %}" class="px-3 py-2">{% csrf_token %}<button type="submit">Log out</button></form>
       {% else %}

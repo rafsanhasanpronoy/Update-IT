@@ -101,6 +101,12 @@ DEBUG = env.bool("DEBUG", default=False)
 
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=[])
 
+# Send users to the homepage after login unless a safe `next` URL is supplied.
+# The default Django destination (`/accounts/profile/`) is not a route in this site.
+LOGIN_URL = "/accounts/login/"
+LOGIN_REDIRECT_URL = "/"
+LOGOUT_REDIRECT_URL = "/"
+
 # Trusted origins for CSRF-protected POST requests (e.g. admin login).
 # Each entry needs the scheme (https://) and must match the domain exactly.
 # Set CSRF_TRUSTED_ORIGINS in your environment to your live site address.

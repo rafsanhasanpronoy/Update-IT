@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib.auth import login
+from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db.models import F, Prefetch
@@ -212,6 +213,11 @@ def student_results(request):
 
     context["form"] = form
     return render(request, "core/results.html", context)
+
+
+def profile(request):
+    """Show the currently signed-in user's basic account information."""
+    return render(request, "core/profile.html", {"profile_user": request.user})
 
 
 @ratelimit(key="ip", rate="5/m", method="POST", block=True)

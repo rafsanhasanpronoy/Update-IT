@@ -104,7 +104,7 @@ ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=[])
 # Send users to the homepage after login unless a safe `next` URL is supplied.
 # The default Django destination (`/accounts/profile/`) is not a route in this site.
 LOGIN_URL = "/accounts/login/"
-LOGIN_REDIRECT_URL = "/"
+LOGIN_REDIRECT_URL = "/accounts/profile/"
 LOGOUT_REDIRECT_URL = "/"
 
 # Trusted origins for CSRF-protected POST requests (e.g. admin login).

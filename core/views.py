@@ -215,6 +215,7 @@ def student_results(request):
     return render(request, "core/results.html", context)
 
 
+@login_required
 def profile(request):
     """Show the currently signed-in user's basic account information."""
     return render(request, "core/profile.html", {"profile_user": request.user})

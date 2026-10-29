@@ -678,21 +678,33 @@ def _student_group_letter(group):
 
 def _generate_student_code(class_obj, group):
     """
-    Builds IDs like 26S001, 26B001, and 26H001 using the selected class's
-    academic year. Numbering is sequential within each academic year and
-    group. Returns None for an unrecognized group.
+    Builds IDs like 26H001, 26H002, and 26S003 using the selected class's
+    academic year. The numeric sequence is shared across all groups for the
+    same two-digit year; only the group letter changes. Returns None for an
+    unrecognized group.
     """
     group_letter = _student_group_letter(group)
     if not group_letter:
         return None
 
-    year = class_obj.academic_year
-    prefix = f"{year % 100:02d}{group_letter}"
-    seq = Student.objects.filter(student_code__startswith=prefix).count() + 1
-    code = f"{prefix}{seq:03d}"
+    year_prefix = f"{class_obj.academic_year % 100:02d}"
+    # Find the highest sequence already assigned for this academic year,
+    # regardless of whether the existing ID belongs to Science, Business,
+    # or Humanities. Do not count rows: deleted IDs or legacy per-group IDs
+    # could otherwise cause a sequence to move backwards.
+    highest_sequence = 0
+    for existing_code in Student.objects.filter(
+        student_code__startswith=year_prefix
+    ).values_list("student_code", flat=True):
+        match = re.fullmatch(rf"{re.escape(year_prefix)}[SBH](\\d+)", str(existing_code))
+        if match:
+            highest_sequence = max(highest_sequence, int(match.group(1)))
+
+    seq = highest_sequence + 1
+    code = f"{year_prefix}{group_letter}{seq:03d}"
     while Student.objects.filter(student_code=code).exists():
         seq += 1
-        code = f"{prefix}{seq:03d}"
+        code = f"{year_prefix}{group_letter}{seq:03d}"
     return code
 
 

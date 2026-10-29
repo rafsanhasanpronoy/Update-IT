@@ -141,6 +141,32 @@
   </div>
 </div>
 
+<p class="section-heading" style="font-size:1.1rem; font-weight:700; margin:0 0 14px;">Previous academic results</p>
+<div class="panel" style="padding:6px 22px; margin-bottom:28px;">
+  <div class="detail-grid">
+    <div class="detail-row">
+      <p class="detail-label">Previous exam</p>
+      <p class="detail-value">{{ instance.previous_exam_name|default:"—" }}</p>
+    </div>
+    <div class="detail-row">
+      <p class="detail-label">Passing year</p>
+      <p class="detail-value">{{ instance.previous_exam_year|default:"—" }}</p>
+    </div>
+    <div class="detail-row">
+      <p class="detail-label">Previous school / college</p>
+      <p class="detail-value">{{ instance.previous_institution_name|default:"—" }}</p>
+    </div>
+    <div class="detail-row">
+      <p class="detail-label">GPA / grade</p>
+      <p class="detail-value">{{ instance.previous_gpa|default:"—" }}</p>
+    </div>
+    <div class="detail-row" style="grid-column:1 / -1;">
+      <p class="detail-label">Result notes</p>
+      <p class="detail-value">{{ instance.previous_result_details|default:"—"|linebreaksbr }}</p>
+    </div>
+  </div>
+</div>
+
 <p class="section-heading" style="font-size:1.1rem; font-weight:700; margin:0 0 14px;">Guardian details</p>
 <div class="panel" style="padding:6px 22px;">
   <div class="detail-grid">

@@ -593,7 +593,10 @@ class Student(models.Model):
     previous_exam_name = models.CharField(max_length=150, blank=True, null=True)
     previous_exam_year = models.PositiveIntegerField(blank=True, null=True)
     previous_institution_name = models.CharField(max_length=200, blank=True, null=True)
-    previous_gpa = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True)
+    previous_gpa = models.DecimalField(
+        max_digits=5, decimal_places=2, blank=True, null=True,
+        validators=[MinValueValidator(0), MaxValueValidator(5)],
+    )
     previous_result_details = models.TextField(blank=True, null=True)
     blood_group = models.CharField(max_length=5, choices=BLOOD_GROUPS, blank=True, null=True)
     # Who referred this student (a person, another student, an ad...). Optional.

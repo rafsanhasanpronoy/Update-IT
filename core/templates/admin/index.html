@@ -1,5 +1,5 @@
 {% extends "admin/core/dashboard_base.html" %}
-{% block title %}Dashboard — Update IT{% endblock %}
+{% block title %}Dashboard — Update Academic Care (UAC){% endblock %}
 {% block crumb %}Dashboard{% endblock %}
 
 {% block extra_head %}
@@ -140,7 +140,7 @@
 {% block content %}
 
 <p class="greeting">{{ dashboard_greeting }}, {{ request.user.first_name|default:request.user.get_username }}</p>
-<p class="greeting-sub">{{ dashboard_today }} — here is a look at what's going on at Update IT today.</p>
+<p class="greeting-sub">{{ dashboard_today }} — here is a look at what's going on at Update Academic Care today.</p>
 
 <div class="stat-grid">
   <div class="stat-card">

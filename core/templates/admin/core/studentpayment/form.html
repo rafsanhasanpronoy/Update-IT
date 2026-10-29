@@ -1,6 +1,70 @@
 {% extends "admin/core/dashboard_base.html" %}
 
-{% block title %}{% if instance %}Edit Payment{% else %}Record a Payment{% endif %} — Dashboard{% endblock %}
+{% block title %}{% if instance %}Edit Payment{% else %}Record a Payment{% endif %} — Dashboard
+<script>
+(function () {
+  const classSelect = document.getElementById("id_class_filter");
+  const batchSelect = document.getElementById("id_batch_filter");
+  const studentSelect = document.getElementById("id_student");
+  if (!classSelect || !batchSelect || !studentSelect) return;
+
+  const originalStudentOptions = Array.from(studentSelect.options);
+  const originalBatchOptions = Array.from(batchSelect.options);
+
+  function filterOptions(select, options, predicate, emptyText) {
+    const previous = select.value;
+    options.forEach((option, index) => {
+      if (index === 0 && !option.value) {
+        option.hidden = false;
+        option.disabled = false;
+        return;
+      }
+      const allowed = predicate(option);
+      option.hidden = !allowed;
+      option.disabled = !allowed;
+    });
+    if (previous && !Array.from(select.options).some(option => option.value === previous && !option.disabled)) {
+      select.value = "";
+    }
+    if (select === studentSelect) {
+      const available = options.slice(1).filter(option => !option.disabled).length;
+      studentSelect.setAttribute("aria-label", available ? "Student — " + available + " matching students" : "Student — no matching students");
+    }
+  }
+
+  function applyFilters() {
+    const classId = classSelect.value;
+    const batchId = batchSelect.value;
+
+    filterOptions(batchSelect, originalBatchOptions, option => {
+      const optionClass = option.dataset.class || "";
+      return (!classId || optionClass === classId);
+    });
+
+    // If the chosen batch belongs to a different class, clear it.
+    const selectedBatch = batchSelect.selectedOptions[0];
+    if (selectedBatch && selectedBatch.value && selectedBatch.disabled) batchSelect.value = "";
+
+    filterOptions(studentSelect, originalStudentOptions, option => {
+      const optionClass = option.dataset.class || "";
+      const optionBatch = option.dataset.batch || "";
+      return (!classId || optionClass === classId) && (!batchId || optionBatch === batchId);
+    });
+  }
+
+  classSelect.addEventListener("change", function () {
+    const selectedBatch = batchSelect.selectedOptions[0];
+    if (selectedBatch && selectedBatch.value && selectedBatch.dataset.class !== classSelect.value) {
+      batchSelect.value = "";
+    }
+    applyFilters();
+  });
+  batchSelect.addEventListener("change", applyFilters);
+  applyFilters();
+})();
+</script>
+
+{% endblock %}
 {% block crumb %}Student Payments{% endblock %}
 
 {% block content %}
@@ -36,9 +100,22 @@
         <div class="code-badge">{{ locked_student.full_name }} &mdash; {{ locked_student.student_code }}</div>
       </div>
       {% else %}
+      <div class="form-field">
+        <label class="form-label" for="{{ form.class_filter.id_for_label }}">Find by Class</label>
+        {{ form.class_filter }}
+        <p class="form-help">Choose a class to narrow the student list.</p>
+        {% if form.class_filter.errors %}<div class="form-error">{{ form.class_filter.errors.0 }}</div>{% endif %}
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="{{ form.batch_filter.id_for_label }}">Find by Batch</label>
+        {{ form.batch_filter }}
+        <p class="form-help">Optional — narrow the list to one batch.</p>
+        {% if form.batch_filter.errors %}<div class="form-error">{{ form.batch_filter.errors.0 }}</div>{% endif %}
+      </div>
       <div class="form-field full-width">
         <label class="form-label" for="{{ form.student.id_for_label }}">Student</label>
         {{ form.student }}
+        <p class="form-help">You can also use the student dropdown to search by name or student ID using your browser's select controls.</p>
         {% if form.student.errors %}<div class="form-error">{{ form.student.errors.0 }}</div>{% endif %}
       </div>
       {% endif %}

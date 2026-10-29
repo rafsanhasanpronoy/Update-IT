@@ -452,8 +452,39 @@ class StudentForm(TailwindStyledFormMixin, forms.ModelForm):
         return instance
 
 
+class FilterDataSelect(forms.Select):
+    """Adds related IDs to options so payment form filters work without extra requests."""
+
+    def __init__(self, *args, data_by_value=None, **kwargs):
+        self.data_by_value = data_by_value or {}
+        super().__init__(*args, **kwargs)
+
+    def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
+        option = super().create_option(name, value, label, selected, index, subindex, attrs)
+        raw_value = getattr(value, "value", value)
+        data = self.data_by_value.get(str(raw_value))
+        if data and option.get("value"):
+            option["attrs"]["data-class"] = str(data.get("class_id", ""))
+            if data.get("batch_id") is not None:
+                option["attrs"]["data-batch"] = str(data["batch_id"])
+        return option
+
+
 class StudentPaymentForm(TailwindStyledFormMixin, forms.ModelForm):
-    """Used by admin.StudentPaymentAdmin's custom add/change views."""
+    """Payment form with class/batch filters to make student lookup quicker."""
+
+    class_filter = forms.ModelChoiceField(
+        queryset=Class.objects.none(),
+        required=False,
+        label="Find by Class",
+        empty_label="All classes",
+    )
+    batch_filter = forms.ModelChoiceField(
+        queryset=Batch.objects.none(),
+        required=False,
+        label="Find by Batch",
+        empty_label="All batches",
+    )
 
     class Meta:
         model = StudentPayment
@@ -466,9 +497,6 @@ class StudentPaymentForm(TailwindStyledFormMixin, forms.ModelForm):
             "remarks",
         ]
         widgets = {
-            # type="date"/"month" give native pickers instead of a
-            # free-text box that silently rejects the wrong format —
-            # same reasoning as StudentForm's date fields.
             "payment_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
             "payment_month": forms.DateInput(attrs={"type": "month"}, format="%Y-%m"),
             "remarks": forms.Textarea(attrs={"rows": 3}),
@@ -476,20 +504,52 @@ class StudentPaymentForm(TailwindStyledFormMixin, forms.ModelForm):
 
     def __init__(self, *args, lock_student=None, **kwargs):
         super().__init__(*args, **kwargs)
-        # Accept back the ISO formats the date/month inputs send, regardless
-        # of server locale.
         self.fields["payment_date"].input_formats = ["%Y-%m-%d"]
         self.fields["payment_month"].input_formats = ["%Y-%m", "%Y-%m-%d"]
-
         self.fields["student"].empty_label = "Select a student"
         self.fields["payment_month"].required = False
         self.fields["payment_month"].help_text = "Required only for Monthly Fee payments."
         self.fields["remarks"].required = False
 
-        # When arriving from a specific student's "Record a payment" link
-        # (or the Monthly Fee Status report), the student is already
-        # known — lock it as a hidden field instead of making staff pick
-        # them again from the dropdown.
+        self.fields["class_filter"].queryset = Class.objects.order_by("academic_year", "class_name")
+        self.fields["batch_filter"].queryset = Batch.objects.select_related("class_obj").order_by(
+            "class_obj__class_name", "batch_name"
+        )
+
+        students = Student.objects.select_related("class_obj", "batch").order_by("full_name")
+        student_data = {
+            str(student.pk): {
+                "class_id": student.class_obj_id,
+                "batch_id": student.batch_id,
+            }
+            for student in students
+        }
+        self.fields["student"].queryset = students
+        self.fields["student"].widget = FilterDataSelect(
+            data_by_value=student_data,
+            attrs={"data-student-picker": "true"},
+        )
+        batch_data = {
+            str(batch.pk): {"class_id": batch.class_obj_id}
+            for batch in self.fields["batch_filter"].queryset
+        }
+        self.fields["batch_filter"].widget = FilterDataSelect(
+            data_by_value=batch_data,
+            attrs={"data-batch-filter": "true"},
+        )
+
+        # Preserve the filters when editing a payment and preselect the
+        # student's class/batch so the current student remains visible.
+        if instance_student := (lock_student or getattr(self.instance, "student", None)):
+            self.fields["class_filter"].initial = instance_student.class_obj_id
+            if instance_student.batch_id:
+                self.fields["batch_filter"].initial = instance_student.batch_id
+
+        self.order_fields([
+            "class_filter", "batch_filter", "student", "payment_type",
+            "amount", "payment_date", "payment_month", "remarks",
+        ])
+
         if lock_student is not None:
             self.fields["student"].initial = lock_student.pk
             self.fields["student"].widget = forms.HiddenInput()
@@ -500,11 +560,18 @@ class StudentPaymentForm(TailwindStyledFormMixin, forms.ModelForm):
         cleaned_data = super().clean()
         payment_type = cleaned_data.get("payment_type")
         payment_month = cleaned_data.get("payment_month")
-        # Monthly Fee is the only recurring charge, and the Monthly Fee
-        # Status report groups payments by payment_month — without it, a
-        # monthly payment would silently never show up as "paid" there.
+        student = cleaned_data.get("student")
+        class_filter = cleaned_data.get("class_filter")
+        batch_filter = cleaned_data.get("batch_filter")
+
         if payment_type == "Monthly Fee" and not payment_month:
             raise ValidationError("Please choose the month this payment is for.")
+        if student and class_filter and student.class_obj_id != class_filter.pk:
+            self.add_error("student", "Choose a student from the selected class.")
+        if student and batch_filter and student.batch_id != batch_filter.pk:
+            self.add_error("student", "Choose a student from the selected batch.")
+        if batch_filter and class_filter and batch_filter.class_obj_id != class_filter.pk:
+            self.add_error("batch_filter", "Choose a batch belonging to the selected class.")
         return cleaned_data
 
 

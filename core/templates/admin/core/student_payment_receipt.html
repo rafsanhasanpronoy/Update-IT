@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Receipt — {{ receipt.student.full_name }} — {{ academy_name }}</title>
 <style>
-  :root { --brand: #830000; --ink: #1A1A1A; --muted: #6B7280; }
+  :root { --brand: #790D16; --ink: #1A1A1A; --muted: #6B7280; }
   * { box-sizing: border-box; }
   body {
     font-family: "Times New Roman", Times, Georgia, serif;
@@ -15,11 +15,33 @@
     background: #f4f4f4;
   }
   .receipt {
+    position: relative;
+    overflow: hidden;
     max-width: 640px;
     margin: 0 auto;
     background: #fff;
     border: 1px solid rgba(0,0,0,0.08);
     padding: 44px 48px;
+  }
+  .receipt-watermark {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .receipt-watermark img {
+    display: block;
+    width: min(72%, 360px);
+    max-height: 360px;
+    object-fit: contain;
+    opacity: 0.10;
+  }
+  .receipt > :not(.receipt-watermark) {
+    position: relative;
+    z-index: 1;
   }
   .receipt-header {
     display: flex;
@@ -122,6 +144,26 @@
     margin: 0 0 4px;
   }
 
+  .authorized-signature {
+    width: 210px;
+    max-width: 48%;
+    margin: 34px 0 24px auto;
+    text-align: center;
+    color: var(--ink);
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .authorized-signature .signature-line {
+    height: 30px;
+    border-bottom: 1px solid var(--ink);
+    margin-bottom: 7px;
+  }
+  .authorized-signature .signature-label {
+    margin: 0;
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+
   .receipt-footer {
     border-top: 1px solid rgba(0,0,0,0.08);
     padding-top: 16px;
@@ -166,7 +208,9 @@
   @media print {
     body { background: #fff; padding: 0; }
     .print-bar { display: none; }
-    .receipt { border: none; padding: 0; max-width: none; }
+    .receipt { border: none; padding: 0; max-width: none; overflow: visible; }
+    .receipt-watermark img { opacity: 0.10; }
+    .authorized-signature { margin-top: 28px; }
   }
 </style>
 </head>
@@ -177,6 +221,7 @@
 </div>
 
 <div class="receipt">
+  {% if ACADEMY_LOGO_URL %}<div class="receipt-watermark" aria-hidden="true"><img src="{{ ACADEMY_LOGO_URL }}" alt=""></div>{% endif %}
   <div class="receipt-header">
     <div class="brand-mark">
       {% if ACADEMY_LOGO_URL %}
@@ -261,6 +306,11 @@
     <p>{{ receipt.remarks }}</p>
   </div>
   {% endif %}
+
+  <div class="authorized-signature">
+    <div class="signature-line"></div>
+    <p class="signature-label">Authorized Signature</p>
+  </div>
 
   <div class="receipt-footer">
     <span>Generated {{ generated_at|date:"d M Y, g:i A" }}</span>

@@ -133,6 +133,33 @@
         {% for error in form.status.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
       </div>
 
+      <p class="form-section-label">Previous academic results <span style="font-weight:400; color:var(--muted);">(optional)</span></p>
+      <div class="form-field">
+        <label for="{{ form.previous_exam_name.id_for_label }}" class="form-label">{{ form.previous_exam_name.label }}</label>
+        {{ form.previous_exam_name }}
+        {% for error in form.previous_exam_name.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+      </div>
+      <div class="form-field">
+        <label for="{{ form.previous_exam_year.id_for_label }}" class="form-label">{{ form.previous_exam_year.label }}</label>
+        {{ form.previous_exam_year }}
+        {% for error in form.previous_exam_year.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+      </div>
+      <div class="form-field">
+        <label for="{{ form.previous_institution_name.id_for_label }}" class="form-label">{{ form.previous_institution_name.label }}</label>
+        {{ form.previous_institution_name }}
+        {% for error in form.previous_institution_name.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+      </div>
+      <div class="form-field">
+        <label for="{{ form.previous_gpa.id_for_label }}" class="form-label">{{ form.previous_gpa.label }}</label>
+        {{ form.previous_gpa }}
+        {% for error in form.previous_gpa.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+      </div>
+      <div class="form-field full-width">
+        <label for="{{ form.previous_result_details.id_for_label }}" class="form-label">{{ form.previous_result_details.label }}</label>
+        {{ form.previous_result_details }}
+        {% for error in form.previous_result_details.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
+      </div>
+
       <p class="form-section-label">Guardian details</p>
       <div class="form-field">
         <label for="{{ form.father_name.id_for_label }}" class="form-label">Father's name</label>

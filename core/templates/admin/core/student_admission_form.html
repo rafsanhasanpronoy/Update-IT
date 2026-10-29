@@ -167,10 +167,79 @@
     .print-bar { text-align: center; }
   }
 
+  @page {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+
   @media print {
-    body { background: #fff; padding: 0; }
-    .print-bar { display: none; }
-    .sheet { border: none; padding: 0; max-width: none; }
+    html, body {
+      width: 100%;
+      height: auto;
+      background: #fff;
+      margin: 0;
+      padding: 0;
+      font-size: 9pt;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .print-bar { display: none !important; }
+    .sheet {
+      width: 100%;
+      max-width: none;
+      margin: 0;
+      padding: 0;
+      border: none;
+      box-shadow: none;
+    }
+    .sheet-header {
+      padding-bottom: 7px;
+      margin-bottom: 10px;
+      border-bottom-width: 2px;
+    }
+    .brand-mark { gap: 7px; }
+    .brand-badge, .brand-logo { width: 30px; height: 30px; }
+    .brand-name { font-size: 12pt; }
+    .sheet-label { font-size: 7pt; }
+    .sheet-id { font-size: 10pt; }
+    .top-row { gap: 14px; margin-bottom: 10px; }
+    .photo-box { width: 72px; height: 86px; }
+    .name-block h2 { font-size: 15pt; margin-bottom: 2px; }
+    .name-block p { font-size: 8pt; margin: 1px 0; }
+    .section-title {
+      font-size: 7pt;
+      padding-bottom: 3px;
+      margin: 11px 0 6px;
+      letter-spacing: 0.05em;
+    }
+    .meta-grid { gap: 7px 20px; }
+    .meta-item .meta-label {
+      font-size: 6.5pt;
+      margin-bottom: 1px;
+      letter-spacing: 0.04em;
+    }
+    .meta-item .meta-value {
+      font-size: 8.5pt;
+      line-height: 1.15;
+      overflow-wrap: anywhere;
+    }
+    .signoff { margin-top: 23px; }
+    .signoff .line {
+      width: 42%;
+      padding-top: 4px;
+      font-size: 7.5pt;
+    }
+    .sheet-footer {
+      margin-top: 16px;
+      padding-top: 7px;
+      font-size: 6.5pt;
+      gap: 10px;
+    }
+    .section-title, .meta-item, .signoff, .sheet-footer {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .watermark { max-height: 300px; }
   }
 </style>
 </head>

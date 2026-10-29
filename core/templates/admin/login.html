@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{{ title }} — Update IT</title>
+<title>{{ title }} — Update Academic Care</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
   tailwind.config = {
@@ -11,8 +11,8 @@
       extend: {
         colors: {
           ink: '#1A1A1A',
-          brand: '#830000',
-          'brand-dark': '#5e0000',
+          brand: '#790D16',
+          'brand-dark': '#5a0910',
           paper: '#FFFFFF',
           muted: '#6B7280',
           hair: '#E7E5E4',
@@ -33,7 +33,7 @@
   }
 
   a:focus-visible, button:focus-visible, input:focus-visible {
-    outline: 2px solid #830000;
+    outline: 2px solid #790D16;
     outline-offset: 3px;
     border-radius: 1px;
   }
@@ -42,7 +42,7 @@
     height: 6px;
     background: repeating-linear-gradient(
       90deg,
-      #830000 0px, #830000 28px,
+      #790D16 0px, #790D16 28px,
       transparent 28px, transparent 34px
     );
   }
@@ -53,11 +53,11 @@
     padding: 0.9rem 1.75rem;
     transition: transform 0.2s var(--ease), box-shadow 0.2s var(--ease), background-color 0.2s var(--ease);
   }
-  .btn-primary { background: #830000; color: #fff; width: 100%; text-align: center; }
+  .btn-primary { background: #790D16; color: #fff; width: 100%; text-align: center; }
   .btn-primary:hover {
     background: #1A1A1A;
     transform: translateY(-2px);
-    box-shadow: 0 14px 28px -14px rgba(131, 0, 0, 0.45);
+    box-shadow: 0 14px 28px -14px rgba(121, 13, 22, 0.45);
   }
   .btn-primary:active { transform: translateY(0); }
 
@@ -78,8 +78,8 @@
   }
   input[type="text"]:focus, input[type="password"]:focus {
     outline: none;
-    border-color: #830000;
-    box-shadow: 0 0 0 3px rgba(131, 0, 0,0.12);
+    border-color: #790D16;
+    box-shadow: 0 0 0 3px rgba(121, 13, 22,0.12);
   }
 </style>
 </head>
@@ -87,9 +87,16 @@
 
 <header class="border-b border-hair">
   <div class="max-w-6xl mx-auto px-6 flex items-center h-20">
-    <a href="/" class="flex items-center gap-3">
-      <span class="w-9 h-9 bg-brand text-white flex items-center justify-center font-bold text-lg">U</span>
-      <span class="font-bold text-xl tracking-tight">Update IT</span>
+    <a href="/" class="flex items-center gap-3 py-2" aria-label="Update Academic Care home">
+      {% if ACADEMY_LOGO_URL %}
+        <img src="{{ ACADEMY_LOGO_URL }}" alt="Update Academic Care logo" class="w-12 h-12 object-contain rounded-lg bg-white p-1 flex-shrink-0">
+      {% else %}
+        <span class="w-12 h-12 rounded-full bg-brand text-white flex items-center justify-center font-bold text-xl flex-shrink-0">U</span>
+      {% endif %}
+      <span class="flex flex-col font-bold tracking-tight leading-tight text-brand">
+        <span class="text-lg sm:text-xl">Update</span>
+        <span class="text-lg sm:text-xl">Academic Care</span>
+      </span>
     </a>
   </div>
 </header>
@@ -97,7 +104,7 @@
 
 <main class="flex-1 flex items-center justify-center px-6 py-16">
   <div class="w-full max-w-sm">
-    <p class="eyebrow" style="letter-spacing:0.14em;text-transform:uppercase;font-size:0.75rem;font-weight:700;color:#830000;">Staff Access</p>
+    <p class="eyebrow" style="letter-spacing:0.14em;text-transform:uppercase;font-size:0.75rem;font-weight:700;color:#790D16;">Staff Access</p>
     <h1 class="text-2xl font-bold mt-2 mb-8">{{ title|default:"Admin Login" }}</h1>
 
     {% if form.errors and not form.non_field_errors %}
@@ -136,7 +143,7 @@
       <a href="{% url 'password_reset' %}" class="font-semibold text-brand hover:underline">Forgot your password?</a>
       <span class="text-muted"> Staff and teachers with website-management access only.</span>
     </p>
-    <a href="/" class="inline-block mt-8 text-sm font-semibold text-muted hover:text-brand transition-colors">&larr; Back to Update IT</a>
+    <a href="/" class="inline-block mt-8 text-sm font-semibold text-muted hover:text-brand transition-colors">&larr; Back to Update Academic Care</a>
   </div>
 </main>
 

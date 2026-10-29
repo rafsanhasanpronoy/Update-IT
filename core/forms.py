@@ -316,6 +316,11 @@ class StudentForm(TailwindStyledFormMixin, forms.ModelForm):
             "date_of_birth",
             "blood_group",
             "institution_name",
+            "previous_exam_name",
+            "previous_exam_year",
+            "previous_institution_name",
+            "previous_gpa",
+            "previous_result_details",
             "student_phone",
             "father_name",
             "father_phone",
@@ -333,6 +338,10 @@ class StudentForm(TailwindStyledFormMixin, forms.ModelForm):
             "date_of_birth": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
             "admission_date": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
             "address": forms.Textarea(attrs={"rows": 3}),
+            "previous_result_details": forms.Textarea(attrs={
+                "rows": 3,
+                "placeholder": "Optional notes, such as GPA scale or overall result",
+            }),
         }
 
     def __init__(self, *args, **kwargs):
@@ -362,6 +371,28 @@ class StudentForm(TailwindStyledFormMixin, forms.ModelForm):
         self.fields["institution_name"].widget = forms.TextInput(
             attrs={"placeholder": "Current school or college of the student"}
         )
+        self.fields["previous_exam_name"].label = "Previous exam (e.g. SSC / HSC)"
+        self.fields["previous_exam_name"].required = False
+        self.fields["previous_exam_name"].widget = forms.TextInput(
+            attrs={"placeholder": "SSC, HSC, O Level, etc."}
+        )
+        self.fields["previous_exam_year"].label = "Previous exam passing year"
+        self.fields["previous_exam_year"].required = False
+        self.fields["previous_exam_year"].widget = forms.NumberInput(
+            attrs={"min": "1900", "max": str(date.today().year), "placeholder": "e.g. 2025"}
+        )
+        self.fields["previous_institution_name"].label = "Previous school / college"
+        self.fields["previous_institution_name"].required = False
+        self.fields["previous_institution_name"].widget = forms.TextInput(
+            attrs={"placeholder": "Institution where the exam was taken"}
+        )
+        self.fields["previous_gpa"].label = "Previous exam GPA / grade"
+        self.fields["previous_gpa"].required = False
+        self.fields["previous_gpa"].widget = forms.NumberInput(
+            attrs={"min": "0", "max": "5", "step": "0.01", "placeholder": "e.g. 4.75 (if GPA is out of 5)"}
+        )
+        self.fields["previous_result_details"].label = "Previous result notes (optional)"
+        self.fields["previous_result_details"].required = False
         self.fields["blood_group"].label = "Blood group"
         self.fields["blood_group"].choices = [("", "Select blood group")] + list(Student.BLOOD_GROUPS)
         self.fields["reference"].label = "Reference (optional)"
@@ -395,6 +426,18 @@ class StudentForm(TailwindStyledFormMixin, forms.ModelForm):
         if admitted and admitted > date.today():
             raise ValidationError("The admission date cannot be in the future.")
         return admitted
+
+    def clean_previous_exam_year(self):
+        year = self.cleaned_data.get("previous_exam_year")
+        if year is not None and (year < 1900 or year > date.today().year):
+            raise ValidationError("Enter a valid passing year that is not in the future.")
+        return year
+
+    def clean_previous_gpa(self):
+        gpa = self.cleaned_data.get("previous_gpa")
+        if gpa is not None and (gpa < 0 or gpa > 5):
+            raise ValidationError("Enter a GPA between 0 and 5.")
+        return gpa
 
     def save(self, commit=True):
         instance = super().save(commit=False)

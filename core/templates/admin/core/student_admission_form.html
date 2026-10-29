@@ -282,6 +282,34 @@
     </div>
   </div>
 
+  {% if student.previous_exam_name or student.previous_exam_year or student.previous_institution_name or student.previous_gpa or student.previous_result_details %}
+  <p class="section-title">Previous Academic Results</p>
+  <div class="meta-grid">
+    <div class="meta-item">
+      <p class="meta-label">Previous Exam</p>
+      <p class="meta-value">{{ student.previous_exam_name|default:"—" }}</p>
+    </div>
+    <div class="meta-item">
+      <p class="meta-label">Passing Year</p>
+      <p class="meta-value">{{ student.previous_exam_year|default:"—" }}</p>
+    </div>
+    <div class="meta-item">
+      <p class="meta-label">Previous School / College</p>
+      <p class="meta-value">{{ student.previous_institution_name|default:"—" }}</p>
+    </div>
+    <div class="meta-item">
+      <p class="meta-label">GPA / Grade</p>
+      <p class="meta-value">{{ student.previous_gpa|default:"—" }}</p>
+    </div>
+    {% if student.previous_result_details %}
+    <div class="meta-item" style="grid-column:1 / -1;">
+      <p class="meta-label">Result Notes</p>
+      <p class="meta-value">{{ student.previous_result_details|linebreaksbr }}</p>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
   {% if student.reference %}
   <p class="section-title">Reference</p>
   <div class="meta-grid">

@@ -134,6 +134,30 @@
     font-weight: 600;
   }
 
+  .receipt-contact {
+    margin-top: 20px;
+    padding: 12px 0 10px;
+    border-top: 1px solid #e5e7eb;
+    display: grid;
+    gap: 7px;
+    color: var(--ink);
+    font-size: 0.88rem;
+    line-height: 1.45;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .contact-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    overflow-wrap: anywhere;
+  }
+  .contact-icon {
+    color: #790D16;
+    font-weight: 700;
+    min-width: 16px;
+    text-align: center;
+  }
   .receipt-footer {
     border-top: 1px solid rgba(0,0,0,0.08);
     padding-top: 16px;
@@ -255,6 +279,11 @@
   <div class="authorized-signature">
     <div class="signature-line"></div>
     <p class="signature-label">Authorized Signature</p>
+  </div>
+
+  <div class="receipt-contact">
+    <div class="contact-item"><span class="contact-icon">☎</span><span><strong>যোগাযোগ:</strong> ০১৯১১-৫১৫১৬১</span></div>
+    <div class="contact-item"><span class="contact-icon">⌖</span><span><strong>ঠিকানা:</strong> ০৭, সরকারি তোলারাম কলেজ রোড, (পুকুর পাড়), নারায়ণগঞ্জ।</span></div>
   </div>
 
   <div class="receipt-footer">

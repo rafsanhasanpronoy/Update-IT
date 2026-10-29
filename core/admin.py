@@ -696,7 +696,7 @@ def _generate_student_code(class_obj, group):
     for existing_code in Student.objects.filter(
         student_code__startswith=year_prefix
     ).values_list("student_code", flat=True):
-        match = re.fullmatch(rf"{re.escape(year_prefix)}[SBH](\\d+)", str(existing_code))
+        match = re.fullmatch(rf"{re.escape(year_prefix)}[SBH](\d+)", str(existing_code))
         if match:
             highest_sequence = max(highest_sequence, int(match.group(1)))
 

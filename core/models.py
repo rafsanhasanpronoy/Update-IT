@@ -588,6 +588,13 @@ class Student(models.Model):
     # The school or college the student currently attends. Needs the
     # columns added by sql/add_student_admission_fields.sql.
     institution_name = models.CharField(max_length=200, blank=True, null=True)
+    # Previous academic result supplied at admission. These columns are added
+    # to the existing Supabase students table by sql/add_student_previous_results.sql.
+    previous_exam_name = models.CharField(max_length=150, blank=True, null=True)
+    previous_exam_year = models.PositiveIntegerField(blank=True, null=True)
+    previous_institution_name = models.CharField(max_length=200, blank=True, null=True)
+    previous_gpa = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True)
+    previous_result_details = models.TextField(blank=True, null=True)
     blood_group = models.CharField(max_length=5, choices=BLOOD_GROUPS, blank=True, null=True)
     # Who referred this student (a person, another student, an ad...). Optional.
     reference = models.CharField(max_length=200, blank=True, null=True)

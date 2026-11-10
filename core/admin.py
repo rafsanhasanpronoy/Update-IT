@@ -848,7 +848,7 @@ class StudentAdmin(admin.ModelAdmin):
     def changelist_view(self, request, extra_context=None):
         if not self.has_view_permission(request):
             raise PermissionDenied
-        students = Student.objects.select_related("class_obj", "batch").order_by("full_name")
+        students = Student.objects.select_related("class_obj", "batch").order_by("student_code")
 
         class_filter_id = request.GET.get("class")
         active_class = None

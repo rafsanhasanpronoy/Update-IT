@@ -15,7 +15,8 @@ from urllib.parse import urlencode
 from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.http import urlencode
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, IntegerField, Q, Sum
+from django.db.models.functions import Cast, Substr
 from .results import grade_for, reports_for_student
 from .forms import (
     AchievementForm, AdmissionApplicationAdminForm, AdmissionInfoForm, AdmissionInquiryAdminForm, BatchForm, ClassForm,
@@ -848,7 +849,7 @@ class StudentAdmin(admin.ModelAdmin):
     def changelist_view(self, request, extra_context=None):
         if not self.has_view_permission(request):
             raise PermissionDenied
-        students = Student.objects.select_related("class_obj", "batch").order_by("student_code")
+        students = Student.objects.select_related("class_obj", "batch").annotate(_student_sequence=Cast(Substr("student_code", 4), IntegerField())).order_by("_student_sequence", "student_code")
 
         class_filter_id = request.GET.get("class")
         active_class = None

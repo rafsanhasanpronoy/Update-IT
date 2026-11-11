@@ -947,7 +947,7 @@ class StudentAdmin(admin.ModelAdmin):
         from reportlab.lib.enums import TA_CENTER
         from reportlab.lib.units import mm
         from reportlab.lib.utils import ImageReader
-        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
 
         student = get_object_or_404(
             Student.objects.select_related("class_obj", "batch"), pk=student_id
@@ -985,20 +985,33 @@ class StudentAdmin(admin.ModelAdmin):
             "AttendanceSmall", parent=styles["Normal"], fontSize=8, leading=10,
         )
 
+        logo_bytes = None
         watermark = None
         if settings.ACADEMY_LOGO_URL:
             try:
-                with urllib.request.urlopen(settings.ACADEMY_LOGO_URL, timeout=5) as resp:
-                    watermark = ImageReader(BytesIO(resp.read()))
+                with urllib.request.urlopen(settings.ACADEMY_LOGO_URL, timeout=8) as resp:
+                    logo_bytes = BytesIO(resp.read())
+                watermark = ImageReader(BytesIO(logo_bytes.getvalue()))
             except (urllib.error.URLError, OSError, ValueError):
+                logo_bytes = None
                 watermark = None
+
+        student_photo = None
+        if student.photo_url:
+            try:
+                with urllib.request.urlopen(student.photo_url, timeout=8) as resp:
+                    photo_bytes = BytesIO(resp.read())
+                student_photo = Image(photo_bytes, width=22*mm, height=26*mm)
+                student_photo.hAlign = "CENTER"
+            except (urllib.error.URLError, OSError, ValueError):
+                student_photo = None
 
         def draw_watermark(canvas, _doc):
             if not watermark:
                 return
             canvas.saveState()
             try:
-                canvas.setFillAlpha(0.075)
+                canvas.setFillAlpha(0.065)
             except AttributeError:
                 pass
             iw, ih = watermark.getSize()
@@ -1011,10 +1024,45 @@ class StudentAdmin(admin.ModelAdmin):
             )
             canvas.restoreState()
 
-        elements = [
+        # Professional three-part header: academy logo, title, and student photo.
+        logo_flowable = None
+        if logo_bytes:
+            try:
+                logo_flowable = Image(BytesIO(logo_bytes.getvalue()), width=22*mm, height=22*mm)
+                logo_flowable.hAlign = "CENTER"
+            except (ValueError, OSError):
+                logo_flowable = None
+
+        header_title = [
             Paragraph("UPDATE ACADEMIC CARE", title_style),
-            Paragraph(f"MONTHLY ATTENDANCE RECORD — {month_label}", sub_style),
+            Paragraph("MONTHLY ATTENDANCE RECORD", sub_style),
+            Paragraph(month_label, ParagraphStyle(
+                "AttendanceMonth", parent=small_style, fontSize=9,
+                textColor=brand, alignment=TA_CENTER,
+            )),
         ]
+        photo_cell = student_photo if student_photo else Paragraph(
+            "Student<br/>Photo", ParagraphStyle(
+                "PhotoPlaceholder", parent=small_style, alignment=TA_CENTER,
+                textColor=muted,
+            )
+        )
+        header = Table(
+            [[logo_flowable or Paragraph("UAC", ParagraphStyle(
+                "LogoFallback", parent=title_style, fontSize=13, alignment=TA_CENTER,
+            )), header_title, photo_cell]],
+            colWidths=[28*mm, 130*mm, 28*mm],
+            rowHeights=[27*mm],
+        )
+        header.setStyle(TableStyle([
+            ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+            ("ALIGN", (0,0), (-1,-1), "CENTER"),
+            ("LINEBELOW", (0,0), (-1,-1), 1.2, brand),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 5),
+            ("LEFTPADDING", (0,0), (-1,-1), 3),
+            ("RIGHTPADDING", (0,0), (-1,-1), 3),
+        ]))
+        elements = [header, Spacer(1, 4*mm)]
         info_data = [
             [Paragraph("<b>Student Name</b>", small_style), Paragraph(student.full_name, small_style),
              Paragraph("<b>Student ID</b>", small_style), Paragraph(student.student_code, small_style)],

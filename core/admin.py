@@ -1083,9 +1083,9 @@ class StudentAdmin(admin.ModelAdmin):
         elements.extend([info_table, Spacer(1, 5*mm)])
 
         rows = [["Date", "Day", "Arrival", "Departure", "No. of Classes", "Signature"]]
-        for day in range(1, day_count + 1):
-            current = date(year, month, day)
-            rows.append([current.strftime("%d %b"), current.strftime("%A"), "", "", "", ""])
+        for _ in range(day_count):
+            # Leave date and day blank so staff/students can fill them in manually.
+            rows.append(["", "", "", "", "", ""])
         attendance_table = Table(
             rows, colWidths=[21*mm, 27*mm, 28*mm, 28*mm, 37*mm, 43*mm],
             rowHeights=[8*mm] + [5.4*mm] * day_count,

@@ -921,12 +921,171 @@ class StudentAdmin(admin.ModelAdmin):
                 name="core_student_admission_form",
             ),
             path(
+                "<int:student_id>/attendance-sheet/",
+                self.admin_site.admin_view(self.attendance_sheet_view),
+                name="core_student_attendance_sheet",
+            ),
+            path(
                 "<path:object_id>/view/",
                 self.admin_site.admin_view(self.view_view),
                 name="core_student_view",
             ),
         ]
         return custom_urls + urls
+
+    def attendance_sheet_view(self, request, student_id):
+        """Download a one-page monthly attendance sheet for an individual student."""
+        if not self.has_view_permission(request):
+            raise PermissionDenied
+        import calendar
+        import urllib.request
+        import urllib.error
+        from datetime import date
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER
+        from reportlab.lib.units import mm
+        from reportlab.lib.utils import ImageReader
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+
+        student = get_object_or_404(
+            Student.objects.select_related("class_obj", "batch"), pk=student_id
+        )
+        month_value = request.GET.get("month", "")
+        try:
+            year, month = (int(part) for part in month_value.split("-", 1))
+            if month < 1 or month > 12 or year < 2000 or year > 2100:
+                raise ValueError
+        except (ValueError, TypeError):
+            today = timezone.localdate()
+            year, month = today.year, today.month
+
+        month_start = date(year, month, 1)
+        month_label = month_start.strftime("%B %Y")
+        day_count = calendar.monthrange(year, month)[1]
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer, pagesize=A4, rightMargin=12 * mm, leftMargin=12 * mm,
+            topMargin=10 * mm, bottomMargin=10 * mm,
+            title=f"Attendance Sheet - {student.full_name} - {month_label}",
+        )
+        brand = colors.HexColor("#790D16")
+        muted = colors.HexColor("#64748B")
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            "AttendanceTitle", parent=styles["Title"], fontName="Helvetica-Bold",
+            fontSize=16, leading=19, textColor=brand, alignment=TA_CENTER, spaceAfter=2,
+        )
+        sub_style = ParagraphStyle(
+            "AttendanceSubtitle", parent=styles["Normal"], fontSize=9,
+            textColor=muted, alignment=TA_CENTER, spaceAfter=7,
+        )
+        small_style = ParagraphStyle(
+            "AttendanceSmall", parent=styles["Normal"], fontSize=8, leading=10,
+        )
+
+        watermark = None
+        if settings.ACADEMY_LOGO_URL:
+            try:
+                with urllib.request.urlopen(settings.ACADEMY_LOGO_URL, timeout=5) as resp:
+                    watermark = ImageReader(BytesIO(resp.read()))
+            except (urllib.error.URLError, OSError, ValueError):
+                watermark = None
+
+        def draw_watermark(canvas, _doc):
+            if not watermark:
+                return
+            canvas.saveState()
+            try:
+                canvas.setFillAlpha(0.075)
+            except AttributeError:
+                pass
+            iw, ih = watermark.getSize()
+            target_w, target_h = 105 * mm, 105 * mm
+            scale = min(target_w / iw, target_h / ih)
+            w, h = iw * scale, ih * scale
+            canvas.drawImage(
+                watermark, (A4[0] - w) / 2, (A4[1] - h) / 2,
+                width=w, height=h, preserveAspectRatio=True, mask="auto",
+            )
+            canvas.restoreState()
+
+        elements = [
+            Paragraph("UPDATE ACADEMIC CARE", title_style),
+            Paragraph(f"MONTHLY ATTENDANCE RECORD — {month_label}", sub_style),
+        ]
+        info_data = [
+            [Paragraph("<b>Student Name</b>", small_style), Paragraph(student.full_name, small_style),
+             Paragraph("<b>Student ID</b>", small_style), Paragraph(student.student_code, small_style)],
+            [Paragraph("<b>Class</b>", small_style), Paragraph(student.class_obj.class_name if student.class_obj else "—", small_style),
+             Paragraph("<b>Batch</b>", small_style), Paragraph(student.batch.batch_name if student.batch else "—", small_style)],
+            [Paragraph("<b>Mobile</b>", small_style), Paragraph(student.student_phone or "—", small_style),
+             Paragraph("<b>Group</b>", small_style), Paragraph(student.group or "—", small_style)],
+        ]
+        info_table = Table(info_data, colWidths=[25*mm, 68*mm, 23*mm, 68*mm], rowHeights=8*mm)
+        info_table.setStyle(TableStyle([
+            ("GRID", (0,0), (-1,-1), 0.45, colors.HexColor("#A1A1AA")),
+            ("BACKGROUND", (0,0), (0,-1), colors.HexColor("#F8F4F4")),
+            ("BACKGROUND", (2,0), (2,-1), colors.HexColor("#F8F4F4")),
+            ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+            ("LEFTPADDING", (0,0), (-1,-1), 5),
+            ("RIGHTPADDING", (0,0), (-1,-1), 5),
+        ]))
+        elements.extend([info_table, Spacer(1, 5*mm)])
+
+        rows = [["Date", "Day", "Arrival", "Departure", "No. of Classes", "Signature"]]
+        for day in range(1, day_count + 1):
+            current = date(year, month, day)
+            rows.append([current.strftime("%d %b"), current.strftime("%A"), "", "", "", ""])
+        attendance_table = Table(
+            rows, colWidths=[21*mm, 27*mm, 28*mm, 28*mm, 37*mm, 43*mm],
+            rowHeights=[8*mm] + [6.1*mm] * day_count,
+            repeatRows=1,
+        )
+        attendance_table.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#F1E7E7")),
+            ("TEXTCOLOR", (0,0), (-1,0), brand),
+            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+            ("FONTSIZE", (0,0), (-1,-1), 8),
+            ("GRID", (0,0), (-1,-1), 0.45, colors.HexColor("#9CA3AF")),
+            ("ALIGN", (0,0), (-1,-1), "CENTER"),
+            ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+            ("LEFTPADDING", (0,0), (-1,-1), 3),
+            ("RIGHTPADDING", (0,0), (-1,-1), 3),
+        ]))
+        elements.extend([attendance_table, Spacer(1, 4*mm)])
+        summary = Table(
+            [["Total Present: __________", "Total Absent: __________", "Total Classes: __________"],
+             ["Remarks: __________________________________________________________________________________________", "", ""]],
+            colWidths=[62*mm, 62*mm, 60*mm],
+            rowHeights=[8*mm, 9*mm],
+        )
+        summary.setStyle(TableStyle([
+            ("SPAN", (0,1), (-1,1)),
+            ("FONTNAME", (0,0), (-1,-1), "Helvetica-Bold"),
+            ("FONTSIZE", (0,0), (-1,-1), 8),
+            ("TEXTCOLOR", (0,0), (-1,-1), brand),
+            ("GRID", (0,0), (-1,-1), 0.45, colors.HexColor("#9CA3AF")),
+            ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+            ("LEFTPADDING", (0,0), (-1,-1), 5),
+        ]))
+        elements.extend([
+            summary, Spacer(1, 3*mm),
+            Paragraph(
+                "Update Academic Care · Contact: 01911-515161 · "
+                "07, Government Tolaram College Road (Pukur Par), Narayanganj.",
+                ParagraphStyle("AttendanceFooter", parent=small_style, fontSize=7,
+                               textColor=muted, alignment=TA_CENTER),
+            ),
+        ])
+        doc.build(elements, onFirstPage=draw_watermark, onLaterPages=draw_watermark)
+        response = HttpResponse(buffer.getvalue(), content_type="application/pdf")
+        safe_id = re.sub(r"[^A-Za-z0-9_-]+", "_", student.student_code)
+        response["Content-Disposition"] = (
+            f'inline; filename="attendance_{safe_id}_{year}_{month:02d}.pdf"'
+        )
+        return response
 
     def admission_form_view(self, request, student_id):
         """Printable admission form — photo, class/batch/group, guardian

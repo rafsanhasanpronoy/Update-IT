@@ -1040,7 +1040,7 @@ class StudentAdmin(admin.ModelAdmin):
             rows.append([current.strftime("%d %b"), current.strftime("%A"), "", "", "", ""])
         attendance_table = Table(
             rows, colWidths=[21*mm, 27*mm, 28*mm, 28*mm, 37*mm, 43*mm],
-            rowHeights=[8*mm] + [6.1*mm] * day_count,
+            rowHeights=[8*mm] + [5.4*mm] * day_count,
             repeatRows=1,
         )
         attendance_table.setStyle(TableStyle([
